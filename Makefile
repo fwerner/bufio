@@ -1,4 +1,4 @@
-MSG = @echo "\033[1;33mBuilding $@\033[0m"
+MSG = @printf "\033[1;33mBuilding $@\033[0m\n"
 CFLAGS = -std=c99 -O2 -Isrc -Wall -Wextra -W -pedantic -march=native
 LDFLAGS =
 
