@@ -1,3 +1,5 @@
+#define _BSD_SOURCE
+
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <unistd.h>

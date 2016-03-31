@@ -1,11 +1,13 @@
+#define _BSD_SOURCE
+
 #include <assert.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <errno.h>
-#include <sys/file.h>
-#include <string.h>
 #include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/file.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include <bufio.h>
 
