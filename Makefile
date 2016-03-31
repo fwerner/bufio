@@ -15,6 +15,7 @@ clean:
 
 lib/%.a: src/%.c
 	$(MSG)
+	@mkdir -p lib/
 	$(CC) $(CFLAGS) -c -o $@ $+
 
 libs: $(LIBS)
