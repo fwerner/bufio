@@ -1,6 +1,6 @@
 MSG = @echo "\033[1;33mBuilding $@\033[0m"
 CFLAGS = -std=c99 -O2 -Isrc -Wall -Wextra -W -pedantic -march=native
-LDFLAGS = $(LIBS)
+LDFLAGS =
 
 LIBS = lib/bufio.a
 TESTS = $(shell grep -l "^int main" tests/*.c | sed s,\.c$$,, )
