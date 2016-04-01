@@ -6,16 +6,19 @@ LIBS = lib/bufio.a
 TESTS = $(shell grep -l "^int main" tests/*.c | sed s,\.c$$,, )
 EXAMPLES = $(shell grep -l "^int main" examples/*.c | sed s,\.c$$,, )
 
-.PHONY: all clean
+.PHONY: all libs tests examples clean
 
 all: libs tests examples
 
 clean:
 	rm -f -- $(LIBS) $(TESTS) $(EXAMPLES)
+	rm -rf -- lib/
 
-lib/%.a: src/%.c
+paths:
+	@mkdir -p lib || test -d lib
+
+lib/%.a: src/%.c | paths
 	$(MSG)
-	@mkdir -p lib/
 	$(CC) $(CFLAGS) -c -o $@ $+
 
 libs: $(LIBS)
