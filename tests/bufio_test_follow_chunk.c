@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include <bufio.h>
+#include "bufio.h"
 
 
 #define BUFSIZE (4096)

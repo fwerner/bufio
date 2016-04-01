@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <bufio.h>
+#include "bufio.h"
 #include "test.h"
 
 

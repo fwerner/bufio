@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include <bufio.h>
+#include "bufio.h"
 
 
 int main(void)
