@@ -6,4 +6,9 @@ define MOVE_HEADER
 	@cp -a $(DIR)/bufio.h $(TARGET_DIR)/include
 endef
 
-TGT_POSTMAKE := ${MOVE_HEADER}
+define REMOVE_HEADER
+	@rm -f $(TARGET_DIR)/include/bufio.h
+endef
+
+TGT_POSTMAKE  := ${MOVE_HEADER}
+TGT_POSTCLEAN := ${REMOVE_HEADER}
