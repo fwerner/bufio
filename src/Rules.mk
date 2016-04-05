@@ -1,4 +1,4 @@
-TARGET := lib/libbufio.a
+TARGET  := lib/libbufio.a
 SOURCES := bufio.c
 
 define MOVE_HEADER
