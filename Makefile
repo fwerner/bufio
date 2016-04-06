@@ -407,13 +407,13 @@ $(foreach TGT,${ALL_TGTS},\
 $(foreach TGT,${ALL_TGTS},\
   $(foreach EXT,${C_SRC_EXTS},\
     $(eval $(call ADD_OBJECT_RULE,${BUILD_DIR}/$(call CANONICAL_PATH,${TGT}),\
-             ${EXT},$${COMPILE_C_CMDS}))))
+             ${EXT} ${${TGT}_PREREQS},$${COMPILE_C_CMDS}))))
 
 # Add pattern rule(s) for creating compiled object code from C++ source.
 $(foreach TGT,${ALL_TGTS},\
   $(foreach EXT,${CXX_SRC_EXTS},\
     $(eval $(call ADD_OBJECT_RULE,${BUILD_DIR}/$(call CANONICAL_PATH,${TGT}),\
-             ${EXT},$${COMPILE_CXX_CMDS}))))
+             ${EXT} ${${TGT}_PREREQS},$${COMPILE_CXX_CMDS}))))
 
 # Add "clean" rules to remove all build-generated files.
 .PHONY: clean
