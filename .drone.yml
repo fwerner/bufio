@@ -1,0 +1,5 @@
+build:
+  image: gcc/latest
+  pull: true
+  commands:
+    - make
