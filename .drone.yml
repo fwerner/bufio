@@ -1,5 +1,17 @@
 build:
-  image: library/gcc:latest
+  image: library/gcc:$$GCC_VERSION
   pull: true
   commands:
     - make
+
+matrix:
+  GCC_VERSION:
+    - latest
+    - 6.1
+    - 5.3
+    - 5.2
+    - 5.1
+    - 4.9
+    - 4.8
+    - 4.7
+    - 4.6
