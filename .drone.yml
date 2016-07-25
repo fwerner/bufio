@@ -1,17 +1,25 @@
 build:
-  image: library/gcc:$$GCC_VERSION
+  image: $$IMAGE
   pull: true
   commands:
+    - |
+      case "${IMAGE}" in
+        *centos*)
+          yum -y update
+          yum -y install make gcc
+          ;;
+        *ubuntu*|*debian*)
+          apt-get update
+          apt-get install make gcc
+          ;;
+      esac
     - make
 
 matrix:
-  GCC_VERSION:
-    - latest
-    - 6.1
-    - 5.3
-    - 5.2
-    - 5.1
-    - 4.9
-    - 4.8
-    - 4.7
-    - 4.6
+  IMAGE:
+    - library/centos:6
+    - library/centos:7
+    - library/ubuntu:12.04
+    - library/ubuntu:14.04
+    - library/ubuntu:15.10
+    - library/ubuntu:16.04
