@@ -16,8 +16,8 @@ pipeline:
             dnf -y install make gcc
             ;;
           *ubuntu*|*debian*)
-            apt-get update
-            apt-get install make gcc
+            apt-get update -y
+            apt-get install -y make gcc
             ;;
           *opensuse*)
             zypper --non-interactive up
