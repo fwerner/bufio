@@ -1,22 +1,65 @@
-build:
-  image: $$IMAGE
-  pull: true
-  commands:
-    - |
-      case "${IMAGE}" in
-        *centos*)
-          yum -y update
-          yum -y install make gcc
-          ;;
-        *ubuntu*|*debian*)
-          apt-get update
-          apt-get install make gcc
-          ;;
-      esac
-    - make
+pipeline:
+  build:
+    image: ${IMAGE}
+    pull: true
+    commands:
+      - export HTTP_PROXY=http://www-cache.mpi-hd.mpg.de:3128
+      - export HTTPS_PROXY=http://www-cache.mpi-hd.mpg.de:3128
+      - |
+        case "${IMAGE}" in
+          *centos*)
+            yum -y --setopt=deltarpm=0 upgrade
+            yum -y install make gcc
+            ;;
+          *fedora*)
+            dnf -y --setopt=deltarpm=0 upgrade
+            dnf -y install make gcc
+            ;;
+          *ubuntu*|*debian*)
+            apt-get update
+            apt-get install make gcc
+            ;;
+          *opensuse*)
+            zypper --non-interactive up
+            zypper --non-interactive in make gcc
+            ;;
+          *archlinux*)
+            #echo -e "[options]\nXferCommand=/usr/bin/curl -C - -f %u > %o" >> /etc/pacman.conf
+            #echo "Server=http://mirrors.kernel.org/archlinux/$repo/os/$arch" > /etc/pacman.d/mirrorlist
+            #cat /etc/pacman.d/mirrorlist
+            pacman -Sqy --noconfirm archlinux-keyring
+            pacman -Sq  --noconfirm pacman
+            pacman-db-upgrade
+            pacman -Squ --noconfirm
+            pacman -Sq  --noconfirm gcc make
+            ;;
+          *alpine*)
+            apk add --no-cache build-base
+            ;;
+          *mageia*)
+            urpmi --auto-update
+            urpmi gcc make
+            ;;
+          *clearlinux*)
+            swupd update
+            swupd bundle-add os-core-dev
+            ;;
+        esac
+      - make
 
 matrix:
   IMAGE:
+    - library/fedora:24
+    - library/fedora:23
+#    - library/alpine:3.4
+#    - library/clearlinux:latest
+#    - library/mageia:5
+#    - library/opensuse:leap
+#    - library/opensuse:harlequin
+#    - library/opensuse:tumbleweed
+#    - base/archlinux:latest
+#    - library/debian:8
+#    - library/debian:7
     - library/centos:6
     - library/centos:7
     - library/ubuntu:12.04
