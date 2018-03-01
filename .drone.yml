@@ -6,4 +6,5 @@ pipeline:
 
 matrix:
   IMAGE:
+    - debian-9-devtools
     - centos-7-devtools
