@@ -1,7 +1,6 @@
 pipeline:
   build:
     image: ${IMAGE}
-    pull: true
     commands:
       - make
 
