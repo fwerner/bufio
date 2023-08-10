@@ -1,5 +1,10 @@
+#ifdef __linux__
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#else
+#undef _POSIX_C_SOURCE
+#endif
 
 #include <sys/wait.h>
 #include <stdlib.h>

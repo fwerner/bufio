@@ -14,8 +14,6 @@
 #ifndef __BUFIO_H__
 #define __BUFIO_H__
 
-#define _GNU_SOURCE
-
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -31,12 +29,12 @@ typedef enum {
   BUFIO_FILE,              // File or named pipe
   BUFIO_LOCKEDFILE,        // File or named pipe with locking
   BUFIO_PIPE,              // Standard stream (stdin, stdout)
-  BUFIO_FIFO               // Named pipe (FIFO)
+  BUFIO_FIFO,              // Named pipe (FIFO)
+  BUFIO_LISTEN_SOCKET  // TCP socket which is not accepted yet
 } bufio_stream_type;
 
 typedef enum {
-  BUFIO_EPIPE = -1,    // Device or socket has been disconnected or an I/O
-                       // error occured
+  BUFIO_EPIPE = -1,    // Device or socket has been disconnected or an I/O error occured
   BUFIO_OKAY = 0,      // Success
   BUFIO_TIMEDOUT = 1,  // Poll or I/O operation timed out
   BUFIO_EOF = 2        // Reached end-of-file
@@ -70,7 +68,7 @@ bufio_stream *bufio_open(const char *peername, const char *opt, int timeout,
 
 size_t bufio_read(bufio_stream *stream, void *ptr, size_t size);
 
-size_t bufio_write(bufio_stream *stream, void *ptr, size_t size);
+size_t bufio_write(bufio_stream *stream, const void *ptr, size_t size);
 
 int bufio_flush(bufio_stream *stream);
 
