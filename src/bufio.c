@@ -1283,7 +1283,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       if (rc == 0) {
         stream->status = BUFIO_TIMEDOUT;
         return 0;  // Timeout
-      } else if (rc > 0 && poll_in.revents == POLLIN) {
+      } else if (rc > 0 && poll_in.revents & POLLIN) {
         return 1;  // Data present (also end-of-file, but we treated this above)
       } else {
         if (poll_in.revents & POLLHUP)
