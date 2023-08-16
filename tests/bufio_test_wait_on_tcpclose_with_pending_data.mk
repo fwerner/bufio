@@ -1,0 +1,2 @@
+TARGET := bin/bufio_test_wait_on_tcpclose_with_pending_data
+SOURCES := bufio_test_wait_on_tcpclose_with_pending_data.c

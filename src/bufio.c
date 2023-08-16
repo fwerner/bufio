@@ -1277,14 +1277,14 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       struct pollfd poll_in;
       poll_in.fd = stream->fd;
       poll_in.events = POLLIN;
+      poll_in.revents = 0;
 
       int rc = safe_poll(&poll_in, 1, timeout);
-
       if (rc == 0) {
         stream->status = BUFIO_TIMEDOUT;
         return 0;  // Timeout
-      } else if (rc > 0 && poll_in.revents & POLLIN) {
-        return 1;  // Data present (also end-of-file, but we treated this above)
+      } else if (rc > 0 && (poll_in.revents & POLLIN)) {
+        return bufio_wait(stream, 0);  // data could be present, but only a call to read() tells us if this is true (esp. in TCP hangup conditions)
       } else {
         if (poll_in.revents & POLLHUP)
           stream->status = -EPIPE;
