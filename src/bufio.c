@@ -124,8 +124,8 @@ static inline void stop_timer(struct itimerval *otimer, struct sigaction *oact)
   If timeout >0, temporarily removes any previously set realtime
   interval timer (ITIMER_REAL).
 */
-static int bufio_lock(bufio_stream *s, int lock_type, int start, int length,
-                      int offset, int timeout)
+static int bufio_lock(bufio_stream *s, int lock_type, size_t start, size_t length,
+                      short offset, int timeout)
 {
   int with_timeout = timeout > 0;
 
@@ -134,7 +134,7 @@ static int bufio_lock(bufio_stream *s, int lock_type, int start, int length,
   if (with_timeout) {
     // Blocking mode
     timer.it_value.tv_sec = (time_t)(timeout / 1000);
-    timer.it_value.tv_usec = (long) ((timeout % 1000) * 1000);
+    timer.it_value.tv_usec = (suseconds_t) ((timeout % 1000) * 1000);
     timerclear(&timer.it_interval);
     timerclear(&otimer.it_value);
     timerclear(&otimer.it_interval);
@@ -1223,7 +1223,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
   assert(stream->input_buffer_size > 0 &&
          stream->input_buffer_size - stream->input_buffer_tail > 0);
 
-  int read_size = stream->input_buffer_size - stream->input_buffer_tail;
+  size_t read_size = stream->input_buffer_size - stream->input_buffer_tail;
   while (1) {
     if (bufio_try_read_lock(stream, read_size) != 1) {
       int rc = bufio_acquire_read_lock(stream, 1, timeout);
