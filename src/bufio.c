@@ -1333,7 +1333,7 @@ list of possible error codes.
 
   // Flush buffers, synchronise and close file descriptor
   int retval = 0;
-  if ((bufio_flush(stream) != 0) |
+  if ((bufio_flush(stream) != 0) ||
       (close(stream->fd) != 0))
     retval = -1;
 
