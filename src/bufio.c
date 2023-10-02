@@ -684,7 +684,7 @@ application code does not crash during writes to a broken pipe.
 
     loginetadr(info, "server waiting for connections", sa, address.sin_port);
     if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1)
-      goto free_and_out;
+      goto close_free_and_out;
   } else {
     // Handle client connection
     loginetadr(info, "connecting to", sa, address.sin_port);
