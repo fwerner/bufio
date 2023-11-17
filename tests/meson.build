@@ -1,0 +1,11 @@
+bufio_test_follow_chunk = executable('bufio_test_follow_chunk', 'bufio_test_follow_chunk.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_follow = executable('bufio_test_follow', 'bufio_test_follow.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_lockedfile = executable('bufio_test_lockedfile', 'bufio_test_lockedfile.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_wait_on_tcpclose_with_pending_data = executable('bufio_test_wait_on_tcpclose_with_pending_data', 'bufio_test_wait_on_tcpclose_with_pending_data.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_wait_on_tcpclose = executable('bufio_test_wait_on_tcpclose', 'bufio_test_wait_on_tcpclose.c', include_directories : bufio_inc, link_with : bufio_lib)
+
+test('bufio_test_follow_chunk', bufio_test_follow_chunk, is_parallel : false)
+test('bufio_test_follow', bufio_test_follow, is_parallel : false)
+test('bufio_test_lockedfile', bufio_test_lockedfile, is_parallel : false)
+test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 120)
+test('bufio_test_wait_on_tcpclose_with_pending_data', bufio_test_wait_on_tcpclose_with_pending_data, is_parallel : false, timeout : 120)
