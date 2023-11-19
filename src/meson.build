@@ -1,6 +1,6 @@
 install_headers('bufio.h')
 
-bufio_sources = ['bufio.c']
+bufio_sources = files('bufio.c')
 
 bufio_lib = library('bufio',
   bufio_sources,
