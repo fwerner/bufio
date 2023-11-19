@@ -14,7 +14,7 @@ bufio_inc = include_directories('src')
 
 subdir('src')
 
-bufio_dep = declare_dependency(include_directories : bufio_inc, link_with : bufio_lib)
+bufio_dep = declare_dependency(include_directories : bufio_inc, link_with : bufio_lib, sources : bufio_sources)
 
 subdir('examples')
 subdir('tests')
