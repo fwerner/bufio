@@ -6,18 +6,9 @@ implemented with additional support for polling.
 
 ## Installation
 
-Run `make` to produce the C header file `include/bufio.h` and the static library `lib/libbufio.a`.
+Requires `meson` and `ninja` to build.
 
-Run `make check` to run unit tests.
+Run `make` to compile the library.
 
-## Contributing
+Run `make test` to run unit tests.
 
-This project is licensed under the Mozilla Public License 2.0, see [LICENSE](LICENSE) for the full terms of use. The MPL
-2.0 is a free-software license and we encourage you to feed back any improvements by submitting patches to the upstream
-maintainers (see Contact below).
-
-The `Makefile` provided to build this project is licensed under the GNU General Public License 3.0.
-
-## Contact
-
-Please send your questions, bug reports or patches via e-mail to felix.werner@mpi-hd.mpg.de.
