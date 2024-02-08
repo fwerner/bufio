@@ -20,7 +20,7 @@ int main(void)
 
   FORK_CHILD
   usleep(200000);
-  bufio_stream *output = bufio_open("tcp://connect/12345/localhost", "w", 1000, 0, "bufio_test_wait_on_tcpclose_with_pending_data");
+  bufio_stream *output = bufio_open("tcp://connect/12345/localhost", "w", 1000, 0, "bufio_test_tcp_connect");
   assert(output != NULL);
 
   usleep(10000);
@@ -31,7 +31,7 @@ int main(void)
 
   FORK_PARENT
 
-  bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_wait_on_tcpclose_with_pending_data");
+  bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_tcp_connect");
   assert(input != NULL);
 
   // No data initially
