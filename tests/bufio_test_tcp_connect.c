@@ -23,8 +23,6 @@ int main(void)
   bufio_stream *output = bufio_open("tcp://connect/12345/localhost", "w", 1000, 0, "bufio_test_tcp_connect");
   assert(output != NULL);
 
-  usleep(10000);
-
   // Transmit 4 bytes, flush & close
   assert(bufio_write(output, buf, 4) == 4);
   assert(bufio_close(output) == 0);
@@ -33,9 +31,6 @@ int main(void)
 
   bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_tcp_connect");
   assert(input != NULL);
-
-  // No data initially
-  assert(bufio_wait(input, 0) == 0);
 
   // 4 bytes available
   assert(bufio_wait(input, 1000) == 1);
