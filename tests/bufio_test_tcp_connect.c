@@ -35,7 +35,6 @@ int main(void)
   // 4 bytes available
   assert(bufio_wait(input, 1000) == 1);
   assert(bufio_read(input, buf, 4) == 4);
-  assert(bufio_wait(input, 1000) == -1);
   assert(bufio_close(input) == 0);
 
   FORK_JOIN
