@@ -27,7 +27,6 @@ flushing and closing a bufio stream.
 
 //----------------------------------------------------------------------------*/
 
-#include <sys/errno.h>
 #ifdef __linux__
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
