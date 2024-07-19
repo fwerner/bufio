@@ -23,4 +23,4 @@ uninstall:
 	cd $(BUILDDIR) && meson --internal uninstall
 
 test:
-	meson test -C $(BUILDDIR)
+	meson test -C $(BUILDDIR) --suite default
