@@ -379,16 +379,16 @@ static inline void *bufio_memcpy(void *dst, const void *src, size_t n)
   Returns 0 on success. If an error occurs, existing buffers are freed and -1
   is returned.
 */
-static int bufio_setbuffer(bufio_stream *stream, size_t size)
+static int bufio_set_buffer(bufio_stream *stream, size_t size)
 {
   if (size == 0)
     size = BUFIO_BUFSIZE;
 
   if (stream->input_buffer_fill > size)
-    fprintf(stderr, "bufio_setbuffer: Truncating input buffer\n");
+    fprintf(stderr, "bufio_set_buffer: Truncating input buffer\n");
 
   if (stream->output_buffer_tail > size)
-    fprintf(stderr, "bufio_setbuffer: Truncating output buffer\n");
+    fprintf(stderr, "bufio_set_buffer: Truncating output buffer\n");
 
   void *buf;
   if ((buf = realloc(stream->input_buffer_base, size)) == NULL)
@@ -624,7 +624,7 @@ application code does not crash during writes to a broken pipe.
       }
     }
 
-    if (bufio_setbuffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
+    if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
       logstring(info, "can not create buffer");
       goto close_free_and_out;
     }
@@ -724,7 +724,7 @@ application code does not crash during writes to a broken pipe.
   // Enable non-blocking I/O
   fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
 
-  if (bufio_setbuffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
+  if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
     logstring(info, "can not create buffer");
     goto close_free_and_out;
   }
