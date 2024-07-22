@@ -30,7 +30,8 @@ typedef enum {
   BUFIO_LOCKEDFILE,        // File or named pipe with locking
   BUFIO_PIPE,              // Standard stream (stdin, stdout)
   BUFIO_FIFO,              // Named pipe (FIFO)
-  BUFIO_LISTEN_SOCKET  // TCP socket which is not accepted yet
+  BUFIO_LISTEN_SOCKET,     // TCP socket which is not accepted yet
+  BUFIO_MEM                // Memory backed buffer, no stream, requires bufio_set_mem_addr
 } bufio_stream_type;
 
 typedef enum {
@@ -61,6 +62,9 @@ typedef struct {
   char *output_buffer_base;   // Pointer to output buffer
   size_t output_buffer_size;  // Size of output buffer
   size_t output_buffer_tail;  // End of buffered data
+  char *mem_addr;             // Pointer to mem:// field
+  size_t mem_size;            // Size of mem:// field
+  size_t mem_offset;          // Read/Write offset into mem:// field
 } bufio_stream;
 
 bufio_stream *bufio_open(const char *peername, const char *opt, int timeout,
@@ -89,6 +93,8 @@ const char *bufio_status_str(bufio_stream *stream);
 int bufio_fileno(bufio_stream *stream);
 
 int bufio_clear_status(bufio_stream *stream);
+
+int bufio_set_mem_field(bufio_stream *stream, char* mem_addr, size_t mem_size);
 
 #ifdef __cplusplus
 }

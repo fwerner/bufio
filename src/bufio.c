@@ -482,6 +482,8 @@ tcp://listen/port/nodename  to listen to port at nodename interface
 tcp://connect/port/nodename to listen to port and nodename
 udp://connect/port/nodename to connect to port at nodename
 lockedfile://filename       to open a file with region locking (see below)
+mem://                      to skip buffering and write/read to a memory address
+                               set with bufio_set_mem_field
 
 Other protocols might be implemeted later, e.g.,
 tty://dev/ttyUS0/raw/speed:9600 or pipe://read/pipefile
@@ -513,6 +515,15 @@ lock is not released immediately, so that subsequent write operations can reuse
 the lock. bufio_flush releases the exclusive lock. bufio_read and bufio_wait
 try to obtain a shared lock of the appropriate length (requested bytes or a
 single byte) for each read that is issued.
+
+The mem:// remote allows io where bufio does not buffer and
+does not write to a stream, but rather uses an in-memory byte field opened with
+two calls to bufio_open with 'r' and 'w' mode respectively.
+This requires usage of the bufio_set_mem_field call to finalize the init and
+whenever the read offset into the memory field should be reset.
+The writing side can make use of bufio_flush to reset the write offset.
+The memory field set with bufio_set_mem_field remains externally managed
+and will not be freed.
 
 //--- Side effects -----------------------------------------------------------//
 
@@ -547,6 +558,8 @@ application code does not crash during writes to a broken pipe.
   } else if (sscanf(peername, "udp://connect/%d/%1024s", &port, name) > 0) {
     socket_type = SOCK_DGRAM;
     type = 'c';
+  } else if (strncmp(peername, "mem://", 6) == 0) {
+    type = 'm';
   } else {
     // Interpret as filename
     type = 'f';
@@ -572,6 +585,13 @@ application code does not crash during writes to a broken pipe.
       stream->mode |= O_WRONLY | O_CREAT | O_TRUNC;
     else if (strcmp(opt, "w+") == 0)
       stream->mode |= O_RDWR | O_CREAT;
+  } else if (type == 'm') {
+    stream->type = BUFIO_MEM;
+
+    if (strncmp(opt, "r", 1) == 0)
+      stream->mode |= O_RDONLY;
+    else if (strncmp(opt, "w", 1) == 0)
+      stream->mode |= O_WRONLY;
   } else {
     if (type == 'L')
       stream->type = BUFIO_LISTEN_SOCKET;
@@ -628,6 +648,14 @@ application code does not crash during writes to a broken pipe.
       logstring(info, "can not create buffer");
       goto close_free_and_out;
     }
+
+    return stream;
+  }
+
+  if (stream->type == BUFIO_MEM) {
+    stream->mem_addr = NULL;
+    stream->mem_size = 0;
+    stream->mem_offset = 0;
 
     return stream;
   }
@@ -775,6 +803,22 @@ and the status code of the stream was set.
 {
   if (size == 0 || stream->type == BUFIO_LISTEN_SOCKET) {
     // fprintf(stderr, "bufio_read: size 0\n");
+    return 0;
+  }
+
+  if (stream->type == BUFIO_MEM) {
+    if (stream->mem_addr && (stream->mode & O_ACCMODE) == O_RDONLY) {
+      size_t readable_bytes = stream->mem_size - stream->mem_offset;
+      size_t bytes_to_read = size < readable_bytes ? size : readable_bytes;
+      if (bytes_to_read == 0) {
+        stream->status = BUFIO_EOF;
+        return 0;
+      }
+      bufio_memcpy(ptr, stream->mem_addr + stream->mem_offset, bytes_to_read);
+      stream->mem_offset += bytes_to_read;
+      return bytes_to_read;
+    }
+    stream->status = BUFIO_EPIPE;
     return 0;
   }
 
@@ -929,6 +973,22 @@ error has occured and the status code of the stream was set.
     return 0;
   }
 
+  if (stream->type == BUFIO_MEM) {
+    if (stream->mem_addr && (stream->mode & O_ACCMODE) == O_WRONLY) {
+      size_t writable_bytes = stream->mem_size - stream->mem_offset;
+      size_t bytes_to_write = size < writable_bytes ? size : writable_bytes;
+      if (bytes_to_write == 0) {
+        stream->status = BUFIO_EOF;
+        return 0;
+      }
+      bufio_memcpy(stream->mem_addr + stream->mem_offset, ptr, bytes_to_write);
+      stream->mem_offset += bytes_to_write;
+      return bytes_to_write;
+    }
+    stream->status = BUFIO_EPIPE;
+    return 0;
+  }
+
   if (stream->output_buffer_size - stream->output_buffer_tail >= size) {
     // Copy data into output buffer and advance index
     // fprintf(stderr, "bufio_write: buffering %zu bytes\n", size);
@@ -1079,6 +1139,11 @@ of the stream was set.
   if (stream->type == BUFIO_LISTEN_SOCKET)
     return 0;
 
+  if (stream->type == BUFIO_MEM) {
+    stream->mem_offset = 0;
+    return 0;
+  }
+
   if (stream->output_buffer_tail == 0) {
     bufio_release_write_lock(stream);
     return 0;
@@ -1221,6 +1286,16 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
     stream->type = BUFIO_SOCKET;
   }
 
+  if (stream->type == BUFIO_MEM) {
+    if ((stream->mode & O_ACCMODE) == O_RDONLY
+        && stream->mem_offset < stream->mem_size)
+      return 1;
+
+    // Write-only or fully read mem without reset return
+    stream->status = BUFIO_EOF;
+    return 0;
+  }
+
   // Check buffer
   if (stream->input_buffer_fill > 0)
     return 1;  // Data present
@@ -1338,6 +1413,9 @@ list of possible error codes.
 
 {
   if (!stream)
+    return 0;
+
+  if (stream->type == BUFIO_MEM)
     return 0;
 
   // Flush buffers, synchronise and close file descriptor
@@ -1487,4 +1565,32 @@ Returns BUFIO_OKAY.
 
 {
   return (stream->status = BUFIO_OKAY);
+}
+
+
+/*=== Function ===============================================================*/
+
+int bufio_set_mem_field(bufio_stream *stream, char* mem_addr, size_t mem_size)
+
+/*--- Description ------------------------------------------------------------//
+
+Set the memory  for the mem:// remote.
+
+//--- Return values ----------------------------------------------------------//
+
+Returns 0 on success.
+Returns 1 if mem_addr is NULL, mem_size is 0 or if bufio_open was not
+opened using the mem:// interface.
+
+//----------------------------------------------------------------------------*/
+
+{
+  // fprintf(stderr, "bufio_set_mem_field: stream %p, type %d addr %p size %ld mode %d\n", (void*)stream, stream->type, (void*)mem_addr, mem_size, (stream->mode & O_ACCMODE));
+  if (stream->type != BUFIO_MEM || !mem_addr || mem_size == 0) {
+    return 1;
+  }
+  stream->mem_addr = mem_addr;
+  stream->mem_size = mem_size;
+  stream->mem_offset = 0;
+  return 0;
 }
