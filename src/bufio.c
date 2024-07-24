@@ -477,13 +477,14 @@ Open a connection or file.
 
 peername can be a plain file name, "-" for stdin/stdout, or
 
-tcp://listen/port           to listen to port at all interfaces
-tcp://listen/port/nodename  to listen to port at nodename interface
-tcp://connect/port/nodename to listen to port and nodename
-udp://connect/port/nodename to connect to port at nodename
-lockedfile://filename       to open a file with region locking (see below)
-mem://                      to skip buffering and write/read to a memory address
-                               set with bufio_set_mem_field
+tcp://listen/<port>             to listen to port at all interfaces
+tcp://listen/<port>/<nodename>  to listen to port at nodename interface
+tcp://connect/<port>/<nodename> to listen to port and nodename
+udp://connect/<port>/<nodename> to connect to port at nodename
+file://<filename>               to open a file
+lockedfile://<filename>         to open a file with region locking (see below)
+mem://<address:%p>/<size:%zu>   to access a memory address up to size_t length,
+                                  skips buffering.
 
 Other protocols might be implemeted later, e.g.,
 tty://dev/ttyUS0/raw/speed:9600 or pipe://read/pipefile
@@ -516,7 +517,7 @@ the lock. bufio_flush releases the exclusive lock. bufio_read and bufio_wait
 try to obtain a shared lock of the appropriate length (requested bytes or a
 single byte) for each read that is issued.
 
-The mem:// remote allows io where bufio does not buffer and
+The mem://<pointer>/<size> remote enables io without buffering and
 does not write to a stream, but rather uses an in-memory byte field opened with
 two calls to bufio_open with 'r' and 'w' mode respectively.
 This requires usage of the bufio_set_mem_field call to finalize the init and
@@ -545,6 +546,9 @@ application code does not crash during writes to a broken pipe.
   unsigned char *sa;
   int socket_type = 0;
 
+  void* mem_addr = NULL;
+  size_t mem_size = 0;
+
   // Guess stream type from peername
   if (sscanf(peername, "tcp://connect/%d/%1024s", &port, name) > 0) {
     socket_type = SOCK_STREAM;
@@ -558,8 +562,11 @@ application code does not crash during writes to a broken pipe.
   } else if (sscanf(peername, "udp://connect/%d/%1024s", &port, name) > 0) {
     socket_type = SOCK_DGRAM;
     type = 'c';
-  } else if (strncmp(peername, "mem://", 6) == 0) {
+  } else if (sscanf(peername, "mem://%p/%zu", (void**)&mem_addr, &mem_size) == 2) {
     type = 'm';
+  } else if (strncmp(peername, "file://", 7) == 0) {
+    peername += 7;
+    type = 'f';
   } else {
     // Interpret as filename
     type = 'f';
@@ -653,8 +660,8 @@ application code does not crash during writes to a broken pipe.
   }
 
   if (stream->type == BUFIO_MEM) {
-    stream->mem_addr = NULL;
-    stream->mem_size = 0;
+    stream->mem_addr = mem_addr;
+    stream->mem_size = mem_size;
     stream->mem_offset = 0;
 
     return stream;
@@ -1585,8 +1592,8 @@ opened using the mem:// interface.
 //----------------------------------------------------------------------------*/
 
 {
-  // fprintf(stderr, "bufio_set_mem_field: stream %p, type %d addr %p size %ld mode %d\n", (void*)stream, stream->type, (void*)mem_addr, mem_size, (stream->mode & O_ACCMODE));
-  if (stream->type != BUFIO_MEM || !mem_addr || mem_size == 0) {
+  // fprintf(stderr, "bufio_set_mem_field: stream %p, type %d addr %p size %zu mode %d\n", (void*)stream, stream->type, (void*)mem_addr, mem_size, (stream->mode & O_ACCMODE));
+  if (stream->type != BUFIO_MEM) {
     return 1;
   }
   stream->mem_addr = mem_addr;
