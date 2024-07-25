@@ -34,6 +34,9 @@ int main(void) {
   // require that fixed characters (7) and at least two 0 are written.
   assert(mem_string_size >= 9);
 
+  bufio_stream* fail_stream = bufio_open(mem_string, "x", 0, 0, "bufio_test_mem_interface");
+  assert(fail_stream == NULL);
+
   bufio_stream *writer =
       bufio_open(mem_string, "w", 0, 0, "bufio_test_mem_interface");
   assert(writer != NULL);

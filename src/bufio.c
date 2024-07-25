@@ -1605,13 +1605,14 @@ int bufio_set_mem_field(bufio_stream *stream, char* mem_addr, size_t mem_size)
 
 /*--- Description ------------------------------------------------------------//
 
-Set the memory  for the mem:// remote.
+Set the memory address and size if the mem:// peer has been used.
+Resets the stream status to BUFIO_OKAY.
+It is up to the user to set a valid address and size.
 
 //--- Return values ----------------------------------------------------------//
 
 Returns 0 on success.
-Returns 1 if mem_addr is NULL, mem_size is 0 or if bufio_open was not
-opened using the mem:// interface.
+Returns 1 if bufio_open was not opened using the mem:// interface.
 
 //----------------------------------------------------------------------------*/
 
@@ -1620,6 +1621,7 @@ opened using the mem:// interface.
   if (stream->type != BUFIO_MEM) {
     return 1;
   }
+  stream->status = BUFIO_OKAY;
   stream->mem_addr = mem_addr;
   stream->mem_size = mem_size;
   stream->mem_offset = 0;
