@@ -1493,6 +1493,30 @@ BUFIO_SOCKET Socket type
   return stream->type;
 }
 
+/*=== Function ===============================================================*/
+
+const char *bufio_type_str(bufio_stream *stream)
+
+/*--- Description ------------------------------------------------------------//
+
+Returns a description of the type of stream.
+
+//----------------------------------------------------------------------------*/
+
+{
+  switch (bufio_type(stream)) {
+    case BUFIO_INVALID_TYPE :  return "invalid";
+    case BUFIO_SOCKET :        return "socket";
+    case BUFIO_FILE :          return "file";
+    case BUFIO_LOCKEDFILE :    return "lockedfile";
+    case BUFIO_PIPE :          return "pipe";
+    case BUFIO_FIFO :          return "fifo";
+    case BUFIO_LISTEN_SOCKET : return "serve";
+    case BUFIO_MEM :           return "mem";
+    default:                   return "unknown";
+  }
+}
+
 
 /*=== Function ===============================================================*/
 

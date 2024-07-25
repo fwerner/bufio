@@ -86,6 +86,8 @@ int bufio_timeout(bufio_stream *stream, int msec);
 
 int bufio_type(bufio_stream *stream);
 
+const char *bufio_type_str(bufio_stream *stream);
+
 int bufio_status(bufio_stream *stream);
 
 const char *bufio_status_str(bufio_stream *stream);
