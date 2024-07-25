@@ -614,6 +614,72 @@ static int open_file(bufio_stream *stream, const char *info, const char *name, c
   return 0;
 }
 
+static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, unsigned char *sa, int timeout)
+{
+  // Handle server connection
+  int so_resueaddr = 1;
+  if ((setsockopt(stream->fd, SOL_SOCKET, SO_REUSEADDR, &so_resueaddr, sizeof(so_resueaddr)) < 0))
+    logstring(info, "can not set socketopt/reuseaddr");
+
+  if (bind(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address)) == -1) {
+    log1string(info,"bind failed ...", strerror(errno));
+    close(stream->fd);
+    return 1;
+  }
+
+  if (listen(stream->fd, 1) < 0) {
+    log1string(info, "listen failed ...", strerror(errno));
+    close(stream->fd);
+    return 1;
+  }
+
+  loginetadr(info, "server waiting for connections", sa, address.sin_port);
+  if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1) {
+    close(stream->fd);
+    return 1;
+  }
+  return 0;
+}
+
+static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, unsigned char *sa, int socket_type, int timeout)
+{
+  // Handle client connection
+  loginetadr(info, "connecting to", sa, address.sin_port);
+
+  int rc = -1;
+  while (1) {
+    // TODO: Measure 'connect' (and 'close'/'socket') time to properly decrease timeout
+    rc = connect(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address));
+    // fprintf(stderr, "bufio_open: connect rc %d errno %d desc %s\n", rc, errno, strerror(errno));
+    if (rc == 0 || (timeout >= 0 && timeout < 50))
+      break;
+
+    if (rc == -1 && errno == ECONNREFUSED) {
+      // if the peer is not ready and refuses we try again
+      // linux would accept retrying the connect() call directly
+      // apple/bsd require closing and opening the socket again.
+      close(stream->fd);
+      if ( (stream->fd = socket(AF_INET, socket_type, 0)) == -1 ) {
+        logstring(info, "create socket failed");
+        return 1;
+      }
+      ignore_sigpipe(stream->fd);
+    }
+    usleep(50000);
+    timeout -= 50;
+#ifdef __APPLE__
+    errno = 0;  // On OS X, usleep sets errno even on success
+#endif
+  }
+
+  if (rc != 0) {
+    log1string(info, "connect timeout /", strerror(errno));
+    close(stream->fd);
+    return 1;
+  }
+  return 0;
+}
+
 static int open_socket(bufio_stream *stream, const char *info, const char *name, int port, int socket_type, int timeout, int socket_init)
 {
   // Handle socket connection
@@ -651,63 +717,11 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     timeout = 100;
 
   if (socket_init == 'l') {
-    // Handle server connection
-    int so_resueaddr = 1;
-    if ((setsockopt(stream->fd, SOL_SOCKET, SO_REUSEADDR, &so_resueaddr, sizeof(so_resueaddr)) < 0))
-      logstring(info, "can not set socketopt/reuseaddr");
-
-    if (bind(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address)) == -1) {
-      log1string(info,"bind failed ...", strerror(errno));
-      close(stream->fd);
+    if (serve_socket(stream, info, address, sa, timeout))
       return 1;
-    }
-
-    if (listen(stream->fd, 1) < 0) {
-      log1string(info, "listen failed ...", strerror(errno));
-      close(stream->fd);
-      return 1;
-    }
-
-    loginetadr(info, "server waiting for connections", sa, address.sin_port);
-    if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1) {
-      close(stream->fd);
-      return 1;
-    }
   } else if (socket_init == 'c') {
-    // Handle client connection
-    loginetadr(info, "connecting to", sa, address.sin_port);
-
-    int rc = -1;
-    while (1) {
-      // TODO: Measure 'connect' (and 'close'/'socket') time to properly decrease timeout
-      rc = connect(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address));
-      // fprintf(stderr, "bufio_open: connect rc %d errno %d desc %s\n", rc, errno, strerror(errno));
-      if (rc == 0 || (timeout >= 0 && timeout < 50))
-        break;
-
-      if (rc == -1 && errno == ECONNREFUSED) {
-        // if the peer is not ready and refuses we try again
-        // linux would accept retrying the connect() call directly
-        // apple/bsd require closing and opening the socket again.
-        close(stream->fd);
-        if ( (stream->fd = socket(AF_INET, socket_type, 0)) == -1 ) {
-          logstring(info, "create socket failed");
-          return 1;
-        }
-        ignore_sigpipe(stream->fd);
-      }
-      usleep(50000);
-      timeout -= 50;
-#ifdef __APPLE__
-      errno = 0;  // On OS X, usleep sets errno even on success
-#endif
-    }
-
-    if (rc != 0) {
-      log1string(info, "connect timeout /", strerror(errno));
-      close(stream->fd);
+    if (connect_socket(stream, info, address, sa, socket_type, timeout))
       return 1;
-    }
   }
 
   // Enable non-blocking I/O
