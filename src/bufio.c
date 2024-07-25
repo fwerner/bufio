@@ -305,6 +305,12 @@ static int log2string(const char *i, const char *s1, const char *s2, const char 
   else return 0;
 }
 
+static int log3string(const char *i, const char *s1, const char *s2, const char *s3, const char *s4)
+{
+  if(i) return fprintf(stderr,"%s: %s %s %s %s\n",i,s1,s2,s3,s4);
+  else return 0;
+}
+
 static int loginetadr(const char *i, const char *s1, unsigned char *sa, int p)
 {
   if(i) return fprintf(stderr,"%s: %s %d.%d.%d.%d:%u\n",
@@ -463,6 +469,113 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
 }
 
 
+static int stream_mode(int type, const char* opt)
+{
+  // Set stream mode
+  int mode = O_NONBLOCK;
+  switch (type) {
+    case BUFIO_FILE:
+    case BUFIO_LOCKEDFILE:
+      if (strcmp(opt, "r") == 0)
+        mode |= O_RDONLY;
+      else if (strcmp(opt, "r+") == 0)
+        mode |= O_RDWR;
+      else if (strcmp(opt, "w") == 0)
+        mode |= O_WRONLY | O_CREAT | O_TRUNC;
+      else if (strcmp(opt, "w+") == 0)
+        mode |= O_RDWR | O_CREAT;
+      else {
+        return -1;
+      }
+    break;
+
+    case BUFIO_MEM:
+    case BUFIO_PIPE:
+      if (strcmp(opt, "r") == 0)
+        mode |= O_RDONLY;
+      else if (strcmp(opt, "w") == 0)
+        mode |= O_WRONLY;
+      else {
+        return -1;
+      }
+    break;
+
+    default:
+      mode |= O_RDWR;
+    break;
+  }
+  // fprintf(stderr, "stream_mode: type %d mode %d\n", type, mode);
+  return mode;
+}
+
+static int stream_type(const char* peername, const char** uri, const char **name, int *port, int *socket_type, int *socket_init, void **mem_addr, size_t *mem_size)
+{
+  static char parse_name[1025] = {0};
+  static const char* uri_file = "file://";
+  static const char* uri_lockedfile = "lockedfile://";
+  static const char* uri_tcp = "tcp://";
+  static const char* uri_udp = "udp://";
+  static const char* uri_mem = "mem://";
+  static const char* uri_pipe = "pipe://";
+  // TODO: Added to encourage implementation in the future:
+  // static const char* uri_shmem = "shmem://";
+  // static const char* uri_tty = "tty://";
+  // static const char* uri_pipe = "pipe://";
+
+  int type = -1;
+  // Guess stream type from peername
+  if (sscanf(peername, "tcp://connect/%d/%1024s", port, parse_name) > 0) {
+    *socket_type = SOCK_STREAM;
+    type = BUFIO_SOCKET;
+    *socket_init = 'c';
+    *name = parse_name;
+    *uri = uri_tcp;
+  } else if (sscanf(peername, "tcp://listen/%d/%1024s", port, parse_name) > 0) {
+    *socket_type = SOCK_STREAM;
+    type = BUFIO_SOCKET;
+    *socket_init = 'l';
+    *name = parse_name;
+    *uri = uri_tcp;
+  } else if (sscanf(peername, "tcp://serve/%d/%1024s", port, parse_name) > 0) {
+    *socket_type = SOCK_STREAM;
+    type = BUFIO_LISTEN_SOCKET;
+    *socket_init = 'l';
+    *name = parse_name;
+    *uri = uri_tcp;
+  } else if (sscanf(peername, "udp://connect/%d/%1024s", port, parse_name) > 0) {
+    *socket_type = SOCK_DGRAM;
+    type = BUFIO_SOCKET;
+    *socket_init = 'c';
+    *name = parse_name;
+    *uri = uri_udp;
+  } else if (sscanf(peername, "mem://%p/%zu", mem_addr, mem_size) == 2) {
+    type = BUFIO_MEM;
+    *uri = uri_mem;
+  } else if (strncmp(peername, uri_file, strlen(uri_file)) == 0) {
+    *name = peername + strlen(uri_file);
+    type = BUFIO_FILE;
+    *uri = uri_file;
+  } else if (strncmp(peername, uri_lockedfile, strlen(uri_lockedfile)) == 0) {
+    *name = peername + strlen(uri_lockedfile);
+    type = BUFIO_LOCKEDFILE;
+    *uri = uri_lockedfile;
+  } else if (strcmp(peername, "-") == 0) {
+    *name = peername;
+    type = BUFIO_PIPE;
+    *uri = uri_pipe;
+  } else {
+    *name = peername;
+    // Interpret as filename
+    type = BUFIO_FILE;
+    *uri = uri_file;
+  }
+  // fprintf(stderr, "stream_type: peername %s uri %s name %s port %d socket_type %d socket_init %d mem_addr %p mem_size %zu\n",
+  //   peername, *uri, *name, *port, *socket_type, *socket_init, *mem_addr, *mem_size
+  //   );
+  return type;
+}
+
+
 /*=== Function ===============================================================*/
 
 bufio_stream *bufio_open(const char *peername,
@@ -540,36 +653,14 @@ application code does not crash during writes to a broken pipe.
 //----------------------------------------------------------------------------*/
 {
   int port = 0;
-  int type = 0;
-  char name[1025] = {0};
+  int socket_init = 0;
+  const char* name = 0;
+  const char* uri = 0;
   unsigned char *sa;
   int socket_type = 0;
 
   void* mem_addr = NULL;
   size_t mem_size = 0;
-
-  // Guess stream type from peername
-  if (sscanf(peername, "tcp://connect/%d/%1024s", &port, name) > 0) {
-    socket_type = SOCK_STREAM;
-    type = 'c';
-  } else if (sscanf(peername, "tcp://listen/%d/%1024s", &port, name) > 0) {
-    socket_type = SOCK_STREAM;
-    type = 'l';
-  } else if (sscanf(peername, "tcp://serve/%d/%1024s", &port, name) > 0) {
-    socket_type = SOCK_STREAM;
-    type = 'L';
-  } else if (sscanf(peername, "udp://connect/%d/%1024s", &port, name) > 0) {
-    socket_type = SOCK_DGRAM;
-    type = 'c';
-  } else if (sscanf(peername, "mem://%p/%zu", (void**)&mem_addr, &mem_size) == 2) {
-    type = 'm';
-  } else if (strncmp(peername, "file://", 7) == 0) {
-    peername += 7;
-    type = 'f';
-  } else {
-    // Interpret as filename
-    type = 'f';
-  }
 
   // Create and populate structure
   bufio_stream *stream = (bufio_stream *) calloc(1, sizeof(bufio_stream));
@@ -578,47 +669,21 @@ application code does not crash during writes to a broken pipe.
     return NULL;
   }
 
-  // Set stream mode and type
-  stream->mode = O_NONBLOCK;
-  if (type == 'f') {
-    stream->type = BUFIO_FILE;
+  if ((stream->type = stream_type(peername, &uri, &name, &port, &socket_type, &socket_init, &mem_addr, &mem_size)) < 0) {
+    log1string(info, "invalid type for peer", peername);
+    goto free_and_out;
+  }
 
-    if (strcmp(opt, "r") == 0) {
-      stream->mode |= O_RDONLY;
-    } else if (strcmp(opt, "r+") == 0) {
-      stream->mode |= O_RDWR;
-    } else if (strcmp(opt, "w") == 0) {
-      stream->mode |= O_WRONLY | O_CREAT | O_TRUNC;
-    } else if (strcmp(opt, "w+") == 0) {
-      stream->mode |= O_RDWR | O_CREAT;
-    } else {
-      log2string(info, "invalid mode", opt, "for file.");
-      goto free_and_out;
-    }
-  } else if (type == 'm') {
-    stream->type = BUFIO_MEM;
-
-    if (strcmp(opt, "r") == 0) {
-      stream->mode |= O_RDONLY;
-    } else if (strcmp(opt, "w") == 0) {
-      stream->mode |= O_WRONLY;
-    } else {
-      log2string(info, "invalid mode", opt, "for mem.");
-      goto free_and_out;
-    }
-  } else {
-    if (type == 'L')
-      stream->type = BUFIO_LISTEN_SOCKET;
-    else
-      stream->type = BUFIO_SOCKET;
-    stream->mode |= O_RDWR;
+  if ((stream->mode = stream_mode(stream->type, opt)) < 0) {
+    log3string(info, "invalid mode", opt, "for", uri);
+    goto free_and_out;
   }
 
   // Handle file open
-  if (stream->type == BUFIO_FILE) {
-    if (strcmp(peername, "-") == 0) {
+  if (stream->type == BUFIO_FILE || stream->type == BUFIO_LOCKEDFILE || stream->type == BUFIO_PIPE) {
+    if (stream->type == BUFIO_PIPE) {
       // Handle standard streams (unidirectional)
-      stream->type = BUFIO_PIPE;  // TODO: Restructure code
+      // stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
         stream->fd = STDOUT_FILENO;  // Write-only
       } else if ((stream->mode & O_RDWR) == 0) {
@@ -629,10 +694,6 @@ application code does not crash during writes to a broken pipe.
         goto free_and_out;
       }
     } else {
-      if (sscanf(peername, "lockedfile://%1024s", name) > 0)
-        stream->type = BUFIO_LOCKEDFILE;
-      else
-        strncpy(name, peername, 1024);
 
       int stat_rc;
       struct stat statbuf;
@@ -670,7 +731,6 @@ application code does not crash during writes to a broken pipe.
     stream->mem_addr = mem_addr;
     stream->mem_size = mem_size;
     stream->mem_offset = 0;
-
     return stream;
   }
 
@@ -708,7 +768,7 @@ application code does not crash during writes to a broken pipe.
   else if (timeout > 0 && timeout < 100)
     timeout = 100;
 
-  if (type == 'l' || type == 'L') {
+  if (socket_init == 'l') {
     // Handle server connection
     int so_resueaddr = 1;
     if ((setsockopt(stream->fd, SOL_SOCKET, SO_REUSEADDR, &so_resueaddr, sizeof(so_resueaddr)) < 0))
@@ -727,7 +787,7 @@ application code does not crash during writes to a broken pipe.
     loginetadr(info, "server waiting for connections", sa, address.sin_port);
     if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1)
       goto close_free_and_out;
-  } else {
+  } else if (socket_init == 'c') {
     // Handle client connection
     loginetadr(info, "connecting to", sa, address.sin_port);
 
@@ -761,6 +821,8 @@ application code does not crash during writes to a broken pipe.
       log1string(info, "connect timeout /", strerror(errno));
       goto close_free_and_out;
     }
+  } else {
+    goto close_free_and_out;
   }
 
   // Enable non-blocking I/O
