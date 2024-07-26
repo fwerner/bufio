@@ -20,7 +20,7 @@ int main(void)
 
   FORK_CHILD
   usleep(200000);
-  bufio_stream *output = bufio_open("udp://connect/12345/localhost", "w", 1000, 0, "bufio_test_udp_connect");
+  bufio_stream *output = bufio_open("udp://connect/12345/localhost", "w", 1000, 0, "bufio_test_udp_connect: writer");
   assert(output != NULL);
 
   // Transmit 4 bytes, flush & close
@@ -29,7 +29,7 @@ int main(void)
 
   FORK_PARENT
 
-  bufio_stream *input = bufio_open("udp://listen/12345/localhost", "r", 1000, 0, "bufio_test_udp_connect");
+  bufio_stream *input = bufio_open("udp://connect/12345/localhost", "r", 1000, 0, "bufio_test_udp_connect: reader");
   assert(input != NULL);
 
   // 4 bytes available
