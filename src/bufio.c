@@ -592,6 +592,10 @@ application code does not crash during writes to a broken pipe.
       stream->mode |= O_WRONLY | O_CREAT | O_TRUNC;
     else if (strcmp(opt, "w+") == 0)
       stream->mode |= O_RDWR | O_CREAT;
+    else {
+      log2string(info, "invalid mode", opt, "for file.");
+      goto free_and_out;
+    }
   } else if (type == 'm') {
     stream->type = BUFIO_MEM;
 
@@ -599,6 +603,10 @@ application code does not crash during writes to a broken pipe.
       stream->mode |= O_RDONLY;
     else if (strncmp(opt, "w", 1) == 0)
       stream->mode |= O_WRONLY;
+    else {
+      log2string(info, "invalid mode", opt, "for mem.");
+      goto free_and_out;
+    }
   } else {
     if (type == 'L')
       stream->type = BUFIO_LISTEN_SOCKET;
