@@ -311,10 +311,13 @@ static int log3string(const char *i, const char *s1, const char *s2, const char 
   else return 0;
 }
 
-static int loginetadr(const char *i, const char *s1, unsigned char *sa, int p)
+static int loginetadr(const char *i, const char *s1, const struct in_addr addr, int port)
 {
-  if(i) return fprintf(stderr,"%s: %s %d.%d.%d.%d:%u\n",
-    i,s1,sa[0],sa[1],sa[2],sa[3],ntohs(p));
+  if(i) {
+    unsigned char *sa = (unsigned char *) &addr.s_addr;
+    return fprintf(stderr,"%s: %s %d.%d.%d.%d:%u\n",
+    i,s1,sa[0],sa[1],sa[2],sa[3],ntohs(port));
+  }
   else return 0;
 }
 
@@ -450,7 +453,6 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     struct sockaddr_in client_address;
     socklen_t address_size = sizeof(client_address);
     int cs = accept(stream->fd, (struct sockaddr *) &client_address, &address_size);
-    unsigned char *sa = (unsigned char *) &client_address.sin_addr.s_addr;
     close(stream->fd);
     if (cs < 0) {
       log1string(info, "accept failed ...", strerror(errno));
@@ -463,7 +465,7 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     // Enable non-blocking I/O
     fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
 
-    loginetadr(info, "connection established", sa, client_address.sin_port);
+    loginetadr(info, "connection established", client_address.sin_addr, client_address.sin_port);
 
     return 1;
 }
@@ -614,7 +616,7 @@ static int open_file(bufio_stream *stream, const char *info, const char *name, c
   return 0;
 }
 
-static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, unsigned char *sa, int timeout)
+static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int timeout)
 {
   // Handle server connection
   int so_resueaddr = 1;
@@ -633,7 +635,7 @@ static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_
     return 1;
   }
 
-  loginetadr(info, "server waiting for connections", sa, address.sin_port);
+  loginetadr(info, "server waiting for connections", address.sin_addr, address.sin_port);
   if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1) {
     close(stream->fd);
     return 1;
@@ -641,10 +643,10 @@ static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_
   return 0;
 }
 
-static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, unsigned char *sa, int socket_type, int timeout)
+static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int socket_type, int timeout)
 {
   // Handle client connection
-  loginetadr(info, "connecting to", sa, address.sin_port);
+  loginetadr(info, "connecting to", address.sin_addr, address.sin_port);
 
   int rc = -1;
   while (1) {
@@ -702,7 +704,6 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     memcpy(&(address.sin_addr.s_addr), hostentry->h_addr, hostentry->h_length);
   }
 
-  unsigned char *sa = (unsigned char *) &address.sin_addr.s_addr;
   stream->fd = socket(AF_INET, socket_type, 0);
   if (stream->fd == -1) {
     logstring(info, "create socket failed");
@@ -717,10 +718,10 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     timeout = 100;
 
   if (socket_init == 'l') {
-    if (serve_socket(stream, info, address, sa, timeout))
+    if (serve_socket(stream, info, address, timeout))
       return 1;
   } else if (socket_init == 'c') {
-    if (connect_socket(stream, info, address, sa, socket_type, timeout))
+    if (connect_socket(stream, info, address, socket_type, timeout))
       return 1;
   }
 
@@ -728,7 +729,7 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
   fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
 
   if (stream->type != BUFIO_LISTEN_SOCKET)
-    loginetadr(info, "connection established, peer", sa, address.sin_port);
+    loginetadr(info, "connection established, peer", address.sin_addr, address.sin_port);
 
   return 0;
 }
