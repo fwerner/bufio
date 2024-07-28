@@ -616,7 +616,7 @@ static int open_file(bufio_stream *stream, const char *name, const char *opt, co
   return 0;
 }
 
-static int serve_socket(bufio_stream *stream, struct sockaddr_in address, int timeout, const char *info)
+static int listen_socket(bufio_stream *stream, struct sockaddr_in address, const char *info)
 {
   // Handle server connection
   int so_resueaddr = 1;
@@ -625,22 +625,16 @@ static int serve_socket(bufio_stream *stream, struct sockaddr_in address, int ti
 
   if (bind(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address)) == -1) {
     log1string(info,"bind failed ...", strerror(errno));
-    close(stream->fd);
-    return 1;
+    return -1;
   }
 
   if (listen(stream->fd, 1) < 0) {
     log1string(info, "listen failed ...", strerror(errno));
-    close(stream->fd);
-    return 1;
+    return -1;
   }
 
   loginetadr(info, "server waiting for connections", address.sin_addr, address.sin_port);
-  if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1) {
-    close(stream->fd);
-    return 1;
-  }
-  return 0;
+  return 1;
 }
 
 static int connect_socket(bufio_stream *stream, struct sockaddr_in address, int timeout, const char *info)
@@ -653,7 +647,7 @@ static int connect_socket(bufio_stream *stream, struct sockaddr_in address, int 
   if (getsockopt(stream->fd, SOL_SOCKET, SO_TYPE, &socket_type, &socket_type_length) == -1) {
     log1string(info, "getsockopt in connect_socket failed ...", strerror(errno));
     close(stream->fd);
-    return 1;
+    return -1;
   }
 
   int rc = -1;
@@ -671,7 +665,7 @@ static int connect_socket(bufio_stream *stream, struct sockaddr_in address, int 
       close(stream->fd);
       if ( (stream->fd = socket(AF_INET, socket_type, 0)) == -1 ) {
         logstring(info, "create socket failed");
-        return 1;
+        return -1;
       }
       ignore_sigpipe(stream->fd);
     }
@@ -685,16 +679,22 @@ static int connect_socket(bufio_stream *stream, struct sockaddr_in address, int 
   if (rc != 0) {
     log1string(info, "connect timeout /", strerror(errno));
     close(stream->fd);
-    return 1;
+    return 0;
   }
-  return 0;
+  return 1;
 }
 
 static int open_socket(bufio_stream *stream, const char *name, int port, int socket_type, int timeout, int socket_init, const char *info)
 {
   // Handle socket connection
-  // Set default timeout to blocking
+  // Set protocol timeout to blocking
   stream->io_timeout_ms = -1;
+
+  // sanitize timeout
+  if (timeout < 0)
+    timeout = -1;
+  else if (timeout > 0 && timeout < 100)
+    timeout = 100;
 
   // Fill address information
   struct sockaddr_in address;
@@ -712,6 +712,7 @@ static int open_socket(bufio_stream *stream, const char *name, int port, int soc
     memcpy(&(address.sin_addr.s_addr), hostentry->h_addr, hostentry->h_length);
   }
 
+  // create socket
   stream->fd = socket(AF_INET, socket_type, 0);
   if (stream->fd == -1) {
     logstring(info, "create socket failed");
@@ -719,16 +720,17 @@ static int open_socket(bufio_stream *stream, const char *name, int port, int soc
   }
   ignore_sigpipe(stream->fd);
 
-  if (timeout < 0)
-    timeout = -1;
-  else if (timeout > 0 && timeout < 100)
-    timeout = 100;
-
   if (socket_init == 'l') {
-    if (serve_socket(stream, address, timeout, info))
+    if (listen_socket(stream, address, info) != 1) {
+      close(stream->fd);
       return 1;
+    }
+    if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1) {
+      close(stream->fd);
+      return 1;
+    }
   } else if (socket_init == 'c') {
-    if (connect_socket(stream, address, timeout, info))
+    if (connect_socket(stream, address, timeout, info) != 1)
       return 1;
   }
 
