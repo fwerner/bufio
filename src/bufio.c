@@ -589,7 +589,7 @@ static int open_pipe(bufio_stream* stream, const char *info) {
   return 0;
 }
 
-static int open_file(bufio_stream *stream, const char *info, const char *name, const char *opt)
+static int open_file(bufio_stream *stream, const char *name, const char *opt, const char *info)
 {
   int stat_rc;
   struct stat statbuf;
@@ -616,7 +616,7 @@ static int open_file(bufio_stream *stream, const char *info, const char *name, c
   return 0;
 }
 
-static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int timeout)
+static int serve_socket(bufio_stream *stream, struct sockaddr_in address, int timeout, const char *info)
 {
   // Handle server connection
   int so_resueaddr = 1;
@@ -643,7 +643,7 @@ static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_
   return 0;
 }
 
-static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int timeout)
+static int connect_socket(bufio_stream *stream, struct sockaddr_in address, int timeout, const char *info)
 {
   // Handle client connection
   loginetadr(info, "connecting to", address.sin_addr, address.sin_port);
@@ -690,7 +690,7 @@ static int connect_socket(bufio_stream *stream, const char *info, struct sockadd
   return 0;
 }
 
-static int open_socket(bufio_stream *stream, const char *info, const char *name, int port, int socket_type, int timeout, int socket_init)
+static int open_socket(bufio_stream *stream, const char *name, int port, int socket_type, int timeout, int socket_init, const char *info)
 {
   // Handle socket connection
   // Set default timeout to blocking
@@ -725,10 +725,10 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     timeout = 100;
 
   if (socket_init == 'l') {
-    if (serve_socket(stream, info, address, timeout))
+    if (serve_socket(stream, address, timeout, info))
       return 1;
   } else if (socket_init == 'c') {
-    if (connect_socket(stream, info, address, timeout))
+    if (connect_socket(stream, address, timeout, info))
       return 1;
   }
 
@@ -854,7 +854,7 @@ application code does not crash during writes to a broken pipe.
     case BUFIO_FILE:
     case BUFIO_LOCKEDFILE:
     case BUFIO_FIFO: {
-      if (open_file(stream, info, name, opt)) {
+      if (open_file(stream, name, opt, info)) {
         goto free_and_out;
       }
       break;
@@ -868,7 +868,7 @@ application code does not crash during writes to a broken pipe.
 
     case BUFIO_SOCKET:
     case BUFIO_LISTEN_SOCKET: {
-      if (open_socket(stream, info, name, port, socket_type, timeout, socket_init)) {
+      if (open_socket(stream, name, port, socket_type, timeout, socket_init, info)) {
         goto free_and_out;
       }
       break;
