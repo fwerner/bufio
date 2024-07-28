@@ -643,10 +643,18 @@ static int serve_socket(bufio_stream *stream, const char *info, struct sockaddr_
   return 0;
 }
 
-static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int socket_type, int timeout)
+static int connect_socket(bufio_stream *stream, const char *info, struct sockaddr_in address, int timeout)
 {
   // Handle client connection
   loginetadr(info, "connecting to", address.sin_addr, address.sin_port);
+
+  int socket_type;
+  socklen_t socket_type_length = sizeof(socket_type);
+  if (getsockopt(stream->fd, SOL_SOCKET, SO_TYPE, &socket_type, &socket_type_length) == -1) {
+    log1string(info, "getsockopt in connect_socket failed ...", strerror(errno));
+    close(stream->fd);
+    return 1;
+  }
 
   int rc = -1;
   while (1) {
@@ -709,7 +717,6 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     logstring(info, "create socket failed");
     return 1;
   }
-
   ignore_sigpipe(stream->fd);
 
   if (timeout < 0)
@@ -721,7 +728,7 @@ static int open_socket(bufio_stream *stream, const char *info, const char *name,
     if (serve_socket(stream, info, address, timeout))
       return 1;
   } else if (socket_init == 'c') {
-    if (connect_socket(stream, info, address, socket_type, timeout))
+    if (connect_socket(stream, info, address, timeout))
       return 1;
   }
 
