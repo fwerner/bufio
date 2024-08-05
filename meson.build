@@ -12,6 +12,11 @@ project('bufio', 'c',
    ]
 )
 
+buildtype = get_option('buildtype')
+if buildtype == 'debug'
+  add_project_arguments([ '-DBUFIO_DEBUG' ], language: 'c')
+endif
+
 bufio_inc = include_directories('src')
 
 subdir('src')

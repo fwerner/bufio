@@ -56,6 +56,15 @@ flushing and closing a bufio stream.
 #include <sys/uio.h>
 #include <unistd.h>
 
+#ifndef BUFIO_DEBUG
+#define BUFIO_DEBUG 0
+#endif
+
+#define BUFIO_DEBUG_PRINT_INTERNAL(fmt, ...) \
+        do { if (BUFIO_DEBUG) fprintf(stderr, "bufio.c:%d %s: " fmt "%s", \
+                                __LINE__, __func__, __VA_ARGS__); } while (0)
+        #define debug_print(...) BUFIO_DEBUG_PRINT_INTERNAL(__VA_ARGS__, "\n")
+
 
 // Thread-specific indicator whether a file locking operation timed out
 static __thread volatile sig_atomic_t lock_timeout = 0;
@@ -156,7 +165,7 @@ static int bufio_lock(bufio_stream *s, int lock_type, size_t start, size_t lengt
       case EAGAIN:
         // Non-blocking call failed
         assert(cmd == F_SETLK && timeout == 0 && !with_timeout);
-        // fprintf(stderr, "non-blocking lock failed\n");
+        debug_print("non-blocking lock failed");
         return 0;
 
       case EINTR:
@@ -188,19 +197,19 @@ static int bufio_lock(bufio_stream *s, int lock_type, size_t start, size_t lengt
 static inline int bufio_try_read_lock(bufio_stream *stream, size_t size)
 {
   assert(!stream->has_read_lock);
-  // fprintf(stderr, "bufio_try_read_lock(..., %zu)\n", size);
+  debug_print("(%p, %zu)", (void*)stream, size);
 
   if (stream->type == BUFIO_LOCKEDFILE) {
     int rc = bufio_lock(stream, F_RDLCK, 0, size, SEEK_CUR, 0);
     if (rc == -1) {
-      // fprintf(stderr, "bufio_try_read_lock: lock failed -- %s\n", strerror(errno));
+      debug_print("lock failed -- %s", strerror(errno));
       stream->status = -errno;
       return -1;
     } else if (rc == 0) {
       return 0;
     }
 
-    // fprintf(stderr, "bufio_try_read_lock: acquired\n");
+    debug_print("acquired");
     stream->has_read_lock = 1;
     stream->read_lock_offset = 0;
   }
@@ -216,16 +225,16 @@ static inline int bufio_acquire_read_lock(bufio_stream *stream, size_t size, int
   if (stream->type == BUFIO_LOCKEDFILE) {
     int rc = bufio_lock(stream, F_RDLCK, 0, size, SEEK_CUR, timeout);
     if (rc == -1) {
-      // fprintf(stderr, "bufio_acquire_read_lock: lock failed -- %s\n", strerror(errno));
+      debug_print("lock failed -- %s", strerror(errno));
       stream->status = -errno;
       return -1;
     } else if (rc == 0) {
-      // fprintf(stderr, "bufio_acquire_read_lock: lock timed out\n");
+      debug_print("lock timed out");
       stream->status = BUFIO_TIMEDOUT;
       return 0;
     }
 
-    // fprintf(stderr, "bufio_acquire_read_lock: acquired\n");
+    debug_print("acquired\n");
     stream->has_read_lock = 1;
     stream->read_lock_offset = 0;
   }
@@ -254,19 +263,19 @@ static inline int bufio_acquire_write_lock(bufio_stream *stream)
   if (stream->type == BUFIO_LOCKEDFILE && !stream->has_write_lock) {
     int rc = bufio_lock(stream, F_WRLCK, 0, 0, SEEK_CUR, stream->io_timeout_ms);
     if (rc == -1) {
-      // fprintf(stderr, "bufio_acquire_write_lock: failed -- %s\n", strerror(errno));
+      debug_print("failed -- %s\n", strerror(errno));
       stream->status = -errno;
       return -1;
     } else if (rc == 0) {
-      // fprintf(stderr, "bufio_acquire_write_lock: timed out\n");
+      debug_print("timed out\n");
       stream->status = BUFIO_TIMEDOUT;
       return 0;
     }
 
-    // fprintf(stderr, "bufio_acquire_write_lock: acquired\n");
+    debug_print("acquired\n");
     stream->has_write_lock = 1;
     stream->write_lock_offset = 0;
-  } // else fprintf(stderr, "bufio_acquire_write_lock: no need\n");
+  } else debug_print("no need");
 
   return 1;
 }
@@ -278,7 +287,7 @@ static inline int bufio_release_write_lock(bufio_stream *stream)
     int rc = bufio_lock(stream, F_UNLCK, -stream->write_lock_offset, 0, SEEK_CUR, -1);
     assert(rc == 1);  // Releasing a region should never fail
 
-    // fprintf(stderr, "bufio_release_write_lock: released\n");
+    debug_print("released");
     stream->has_write_lock = 0;
   }
 
@@ -735,7 +744,7 @@ application code does not crash during writes to a broken pipe.
     while (1) {
       // TODO: Measure 'connect' (and 'close'/'socket') time to properly decrease timeout
       rc = connect(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address));
-      // fprintf(stderr, "bufio_open: connect rc %d errno %d desc %s\n", rc, errno, strerror(errno));
+      debug_print("connect rc %d errno %d desc %s", rc, errno, strerror(errno));
       if (rc == 0 || (timeout >= 0 && timeout < 50))
         break;
 
@@ -816,7 +825,7 @@ and the status code of the stream was set.
 
 {
   if (size == 0 || stream->type == BUFIO_LISTEN_SOCKET) {
-    // fprintf(stderr, "bufio_read: size 0\n");
+    debug_print("size 0");
     return 0;
   }
 
@@ -840,7 +849,7 @@ and the status code of the stream was set.
 
   if (size <= stream->input_buffer_fill) {
     // Destination can be filled completely from buffer
-    // fprintf(stderr, "bufio_read: Copying %zu bytes\n", size);
+    debug_print("copying %zu bytes", size);
     bufio_memcpy(ptr, stream->input_buffer_base + stream->input_buffer_head, size);
 
     size_t remaining_bytes = stream->input_buffer_fill - size;
@@ -861,7 +870,7 @@ and the status code of the stream was set.
   }
 
   // Not enough data in buffer: copy buffered data and perform read
-  // fprintf(stderr, "bufio_read: Reading %zu bytes, %zu from buffer\n", size, stream->input_buffer_fill);
+  debug_print("reading %zu bytes, %zu from buffer", size, stream->input_buffer_fill);
   size_t remaining_bytes = size - stream->input_buffer_fill;
 
   if (stream->input_buffer_fill > 0) {
@@ -903,7 +912,7 @@ and the status code of the stream was set.
         continue;
 
       // General I/O error, see readv(2)
-      // fprintf(stderr, "bufio_read: Error\n");
+      debug_print("error");
       stream->status = -errno;
       bufio_release_read_lock(stream);
       return size - remaining_bytes;
@@ -923,9 +932,9 @@ and the status code of the stream was set.
       stream->input_buffer_tail = nbytes - remaining_bytes;
       stream->input_buffer_fill = stream->input_buffer_tail;
       remaining_bytes = 0;
-      // fprintf(stderr, "bufio_read: Read %zu bytes, placed %zu bytes in buffer\n", nbytes, stream->input_buffer_fill);
+      debug_print("read %zu bytes, placed %zu bytes in buffer", nbytes, stream->input_buffer_fill);
     } else {
-      // fprintf(stderr, "bufio_read: Read %zu bytes\n", (size_t) nbytes);
+      debug_print("read %zu bytes", (size_t) nbytes);
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
@@ -942,7 +951,7 @@ and the status code of the stream was set.
   else if (poll_in.revents & POLLERR)
     stream->status = -EIO;  // EIO comes closest to "an exceptional condition"
   else if (poll_rc == 0) {
-    fprintf(stderr, "TIMEOUT with %zu remaining bytes (%zu bytes requested)\n", remaining_bytes, size);
+    debug_print("timeout with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
     stream->status = BUFIO_TIMEDOUT;
   }
 
@@ -985,7 +994,7 @@ error has occured and the status code of the stream was set.
   poll_out.revents = 0;
 
   if (size == 0 || stream->type == BUFIO_LISTEN_SOCKET) {
-    // fprintf(stderr, "bufio_write: size 0\n");
+    debug_print("size 0");
     return 0;
   }
 
@@ -1009,7 +1018,7 @@ error has occured and the status code of the stream was set.
 
   if (stream->output_buffer_size - stream->output_buffer_tail >= size) {
     // Copy data into output buffer and advance index
-    // fprintf(stderr, "bufio_write: buffering %zu bytes\n", size);
+    debug_print("buffering %zu bytes", size);
     bufio_memcpy(stream->output_buffer_base + stream->output_buffer_tail, ptr, size);
     stream->output_buffer_tail += size;
 
@@ -1022,7 +1031,7 @@ error has occured and the status code of the stream was set.
 
   if (stream->output_buffer_tail == 0) {
     // Buffer is empty: write data directly
-    // fprintf(stderr, "bufio_write: direct write\n");
+    debug_print("direct write");
     int poll_rc = 0;
     size_t remaining_bytes = size;
     do {
@@ -1031,7 +1040,7 @@ error has occured and the status code of the stream was set.
         if (errno == EAGAIN || errno == EINTR)
           continue;
 
-        // fprintf(stderr, "bufio_write: error in direct write -- %s\n", strerror(errno));
+        debug_print("error in direct write -- %s", strerror(errno));
 
         stream->status = -errno;
         return size - remaining_bytes;
@@ -1049,7 +1058,7 @@ error has occured and the status code of the stream was set.
     if (remaining_bytes == 0)
       return size;
 
-    // fprintf(stderr, "bufio_write: error in direct write -- %s\n", strerror(errno));
+    debug_print("error in direct write -- %s", strerror(errno));
 
     if (poll_out.revents & POLLHUP)
       stream->status = -EPIPE;
@@ -1062,7 +1071,7 @@ error has occured and the status code of the stream was set.
   }
 
   // Write buffer and data with one call
-  // fprintf(stderr, "bufio_write: scattered write\n");
+  debug_print("scattered write");
   struct iovec write_vec[2];
   write_vec[0].iov_base = stream->output_buffer_base;
   write_vec[0].iov_len = stream->output_buffer_tail;
@@ -1117,7 +1126,7 @@ error has occured and the status code of the stream was set.
   if (remaining_bytes == 0)
     return size;
 
-  fprintf(stderr, "bufio_write: Error\n");
+  debug_print("error");
 
   if (poll_out.revents & POLLHUP)
     stream->status = -EPIPE;
@@ -1170,7 +1179,7 @@ of the stream was set.
     return 0;
   }
 
-  // fprintf(stderr, "bufio_flush: Flushing %zu bytes\n", stream->output_buffer_tail);
+  debug_print("flushing %zu bytes", stream->output_buffer_tail);
 
   struct pollfd poll_out;
   poll_out.fd = stream->fd;
@@ -1192,7 +1201,7 @@ of the stream was set.
       return -1;
     }
 
-    // fprintf(stderr, "bufio_flush: Wrote %zu bytes\n", (size_t) nbytes);
+    debug_print("wrote %zu bytes", (size_t) nbytes);
     assert(nbytes >= 0 &&
            (size_t) nbytes <= stream->output_buffer_tail - output_buffer_head);
     output_buffer_head += nbytes;
@@ -1346,7 +1355,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
 
     if (nbytes > 0) {
       // Read successful: advance pointer
-      // fprintf(stderr, "bufio_wait: Read %zu bytes\n", (size_t) nbytes);
+      debug_print("read %zu bytes", (size_t) nbytes);
       stream->input_buffer_tail += nbytes;
       stream->input_buffer_fill += nbytes;
       stream->read_lock_offset += nbytes;
@@ -1370,7 +1379,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       if (nbytes == 0)
         stream->status = BUFIO_EOF;
 
-      // fprintf(stderr, "bufio_wait: No data, skipping poll (nbytes: %zi, read_errno: %i - %s)\n", nbytes, read_errno, strerror(read_errno));
+      debug_print("no data, skipping poll (nbytes: %zi, read_errno: %i - %s)", nbytes, read_errno, strerror(read_errno));
       return 0;  // No data present
     }
 
@@ -1378,7 +1387,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       assert(stream->type != BUFIO_FILE && stream->type != BUFIO_LOCKEDFILE);
 
       // Poll for incoming data (with protection from external signals)
-      // fprintf(stderr, "bufio_wait: Poll\n");
+      debug_print("poll");
       struct pollfd poll_in;
       poll_in.fd = stream->fd;
       poll_in.events = POLLIN;
@@ -1634,7 +1643,7 @@ Returns 1 if bufio_open was not opened using the mem:// interface.
 //----------------------------------------------------------------------------*/
 
 {
-  // fprintf(stderr, "bufio_set_mem_field: stream %p, type %d addr %p size %zu mode %d\n", (void*)stream, stream->type, (void*)mem_addr, mem_size, (stream->mode & O_ACCMODE));
+  debug_print("stream %p, type %d addr %p size %zu mode %d", (void*)stream, stream->type, (void*)mem_addr, mem_size, (stream->mode & O_ACCMODE));
   if (stream->type != BUFIO_MEM) {
     return 1;
   }
