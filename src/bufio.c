@@ -849,7 +849,7 @@ and the status code of the stream was set.
 
   if (size <= stream->input_buffer_fill) {
     // Destination can be filled completely from buffer
-    debug_print("Copying %zu bytes", size);
+    debug_print("copying %zu bytes", size);
     bufio_memcpy(ptr, stream->input_buffer_base + stream->input_buffer_head, size);
 
     size_t remaining_bytes = stream->input_buffer_fill - size;
@@ -870,7 +870,7 @@ and the status code of the stream was set.
   }
 
   // Not enough data in buffer: copy buffered data and perform read
-  debug_print("Reading %zu bytes, %zu from buffer", size, stream->input_buffer_fill);
+  debug_print("reading %zu bytes, %zu from buffer", size, stream->input_buffer_fill);
   size_t remaining_bytes = size - stream->input_buffer_fill;
 
   if (stream->input_buffer_fill > 0) {
@@ -912,7 +912,7 @@ and the status code of the stream was set.
         continue;
 
       // General I/O error, see readv(2)
-      debug_print("Error");
+      debug_print("error");
       stream->status = -errno;
       bufio_release_read_lock(stream);
       return size - remaining_bytes;
@@ -932,9 +932,9 @@ and the status code of the stream was set.
       stream->input_buffer_tail = nbytes - remaining_bytes;
       stream->input_buffer_fill = stream->input_buffer_tail;
       remaining_bytes = 0;
-      debug_print("Read %zu bytes, placed %zu bytes in buffer", nbytes, stream->input_buffer_fill);
+      debug_print("read %zu bytes, placed %zu bytes in buffer", nbytes, stream->input_buffer_fill);
     } else {
-      debug_print("Read %zu bytes", (size_t) nbytes);
+      debug_print("read %zu bytes", (size_t) nbytes);
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
@@ -1126,7 +1126,7 @@ error has occured and the status code of the stream was set.
   if (remaining_bytes == 0)
     return size;
 
-  debug_print("Error");
+  debug_print("error");
 
   if (poll_out.revents & POLLHUP)
     stream->status = -EPIPE;
@@ -1179,7 +1179,7 @@ of the stream was set.
     return 0;
   }
 
-  debug_print("Flushing %zu bytes", stream->output_buffer_tail);
+  debug_print("flushing %zu bytes", stream->output_buffer_tail);
 
   struct pollfd poll_out;
   poll_out.fd = stream->fd;
@@ -1201,7 +1201,7 @@ of the stream was set.
       return -1;
     }
 
-    debug_print("Wrote %zu bytes", (size_t) nbytes);
+    debug_print("wrote %zu bytes", (size_t) nbytes);
     assert(nbytes >= 0 &&
            (size_t) nbytes <= stream->output_buffer_tail - output_buffer_head);
     output_buffer_head += nbytes;
@@ -1355,7 +1355,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
 
     if (nbytes > 0) {
       // Read successful: advance pointer
-      debug_print("Read %zu bytes", (size_t) nbytes);
+      debug_print("read %zu bytes", (size_t) nbytes);
       stream->input_buffer_tail += nbytes;
       stream->input_buffer_fill += nbytes;
       stream->read_lock_offset += nbytes;
@@ -1379,7 +1379,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       if (nbytes == 0)
         stream->status = BUFIO_EOF;
 
-      debug_print("No data, skipping poll (nbytes: %zi, read_errno: %i - %s)", nbytes, read_errno, strerror(read_errno));
+      debug_print("no data, skipping poll (nbytes: %zi, read_errno: %i - %s)", nbytes, read_errno, strerror(read_errno));
       return 0;  // No data present
     }
 
@@ -1387,7 +1387,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       assert(stream->type != BUFIO_FILE && stream->type != BUFIO_LOCKEDFILE);
 
       // Poll for incoming data (with protection from external signals)
-      debug_print("Poll");
+      debug_print("poll");
       struct pollfd poll_in;
       poll_in.fd = stream->fd;
       poll_in.events = POLLIN;
