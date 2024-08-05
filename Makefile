@@ -19,8 +19,8 @@ local: $(BUILDDIR)
 install: compile
 	meson install -C $(BUILDDIR)
 
-uninstall:
+uninstall: $(BUILDDIR)
 	cd $(BUILDDIR) && meson --internal uninstall
 
-test:
-	meson test -C $(BUILDDIR) --suite default
+test: compile
+	meson test -C $(BUILDDIR) -v --suite default
