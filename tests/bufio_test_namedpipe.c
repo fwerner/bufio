@@ -48,10 +48,24 @@ int main(void)
   assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
   assert(bufio_wait(si, 100) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
 
+  // Test read after write
+  assert(bufio_write(so, buf, 4) == 4 && bufio_flush(so) == 0);
+  assert(bufio_read(si, buf, 4) == 4);
+
   // Clean up
   assert(bufio_close(so) == 0);
   assert(bufio_close(si) == 0);
   assert(unlink("test_bufio_namedpipe.fifo") == 0);
+
+  // Test again with just a reader
+  assert(mkfifo("test_bufio_namedpipe.fifo", S_IRUSR | S_IWUSR) == 0);
+  si = bufio_open("test_bufio_namedpipe.fifo", "r", 1000, 256, "bufio_test_namedpipe");
+  assert(si != NULL);
+
+  // Assert no initial data and timeout (not EOF, even when there's no writer)
+  assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
+  assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
+  assert(bufio_wait(si, 100) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
 
   return 0;
 }
