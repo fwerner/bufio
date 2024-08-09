@@ -504,7 +504,9 @@ which are always bidirectional. Also, standard streams (stdin, stdout) are
 unidirectional. If required, files are created with rw-rw-r--.
 
 timeout specifies the time to wait for a connection in milliseconds. Specify
--1 to block indefinitely.
+-1 to block indefinitely. If the target is a named pipe (created with mkfifo)
+and mode is "w", bufio_open waits this amount of time for a reader to attach
+to the pipe.
 
 bufsize specifies the buffer size in Byte. If 0 a default value will be used.
 
@@ -657,11 +659,27 @@ application code does not crash during writes to a broken pipe.
       } else if (!stat_rc && S_ISFIFO(statbuf.st_mode)) {
         // TODO: LOCKEDFIFO?
         stream->type = BUFIO_FIFO;
+        if (timeout < 0)
+          timeout = -1;
+        else if (timeout > 0 && timeout < 50)
+          timeout = 50;
       }
 
       // Open file
       mode_t file_flags = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
-      if ((stream->fd = open(name, stream->mode, file_flags)) == -1) {
+      while ((stream->fd = open(name, stream->mode, file_flags)) == -1) {
+        if (stream->type != BUFIO_FIFO || !(stream->mode & O_WRONLY) || (timeout >= 0 && timeout < 50))
+          break;
+
+        assert(stream->type == BUFIO_FIFO && errno == ENXIO);
+
+        // For a writer on namedpipe, wait for a reading process until the timeout is reached
+        usleep(50000);
+        if (timeout != -1)
+          timeout -= 50;
+      }
+
+      if (stream->fd == -1) {
         log2string(info, "failed to open file with mode", opt, name);
         goto free_and_out;
       }
