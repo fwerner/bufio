@@ -62,7 +62,7 @@ int main(void)
   si = bufio_open("test_bufio_namedpipe.fifo", "r", 1000, 256, "bufio_test_namedpipe");
   assert(si != NULL);
 
-  // Assert no initial data and timeout (not EOF, even when there's no writer)
+  // Assert no initial data and EOF (when there's no writer)
   assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_EOF);
   assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_EOF);
   assert(gettimeofday(&before, NULL) == 0);
