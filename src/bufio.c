@@ -632,8 +632,10 @@ application code does not crash during writes to a broken pipe.
       stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
         stream->fd = STDOUT_FILENO;  // Write-only
+        fcntl(stream->fd, F_SETFL, (long)(O_WRONLY | O_NONBLOCK));
       } else if ((stream->mode & O_RDWR) == 0) {
         stream->fd = STDIN_FILENO;  // Read-only
+        fcntl(stream->fd, F_SETFL, (long)(O_NONBLOCK));
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
@@ -936,7 +938,10 @@ and the status code of the stream was set.
       return size - remaining_bytes;
     }
 
-    if (nbytes == 0 && poll_in.revents & POLLIN) {
+    // Read returns 0 to indicate EOF for files and when no writer is attached
+    // to an anonymous or named pipe ("fifo"); see pipe(7)
+    if (nbytes == 0 &&
+        ((poll_in.revents & POLLIN) || stream->type == BUFIO_FIFO)) {
       // Reached end-of-file
       stream->status = BUFIO_EOF;
       bufio_release_read_lock(stream);
