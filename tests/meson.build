@@ -6,6 +6,7 @@ bufio_test_lockedfile = executable('bufio_test_lockedfile', 'bufio_test_lockedfi
 bufio_test_file = executable('bufio_test_file', 'bufio_test_file.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_pipe = executable('bufio_test_pipe', 'bufio_test_pipe.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_namedpipe = executable('bufio_test_namedpipe', 'bufio_test_namedpipe.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_namedpipe_async = executable('bufio_test_namedpipe_async', 'bufio_test_namedpipe_async.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_wait_on_tcpclose_with_pending_data = executable('bufio_test_wait_on_tcpclose_with_pending_data', 'bufio_test_wait_on_tcpclose_with_pending_data.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_wait_on_tcpclose = executable('bufio_test_wait_on_tcpclose', 'bufio_test_wait_on_tcpclose.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_mem_interface = executable('bufio_test_mem_interface', 'bufio_test_mem_interface.c', include_directories : bufio_inc, link_with : bufio_lib)
@@ -18,6 +19,7 @@ test('bufio_test_lockedfile', bufio_test_lockedfile, is_parallel : false, suite:
 test('bufio_test_file', bufio_test_file, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_pipe', bufio_test_pipe, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_namedpipe', bufio_test_namedpipe, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_namedpipe_async', bufio_test_namedpipe_async, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_mem_interface', bufio_test_mem_interface, is_parallel : false, suite: ['all', 'default'])
 
 test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 120, suite: ['all', 'extensive'])
