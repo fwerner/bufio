@@ -1398,16 +1398,10 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       return -1;  // Stream error
     }
 
-    // When trying a non-blocking read on a pipe where the writer hung up, macOS yields 0 bytes and ETIMEDOUT
-    if (stream->type == BUFIO_PIPE && nbytes == 0 && read_errno == ETIMEDOUT) {
-      stream->status = BUFIO_EPIPE;
-      return -1;  // Stream error
-    }
-
-    // When trying a non-blocking read on a TCP connection in CLOSE_WAIT state,
+    // When trying a non-blocking read on a TCP connection in CLOSE_WAIT state or on a pipe where the writer hung up
     // - macOS yields 0 bytes and ETIMEDOUT, while
     // - Linux yields 0 bytes and EAGAIN.
-    if (stream->type == BUFIO_SOCKET && nbytes == 0 && (read_errno == ETIMEDOUT || read_errno == EAGAIN)) {
+    if ((stream->type == BUFIO_PIPE || stream->type == BUFIO_SOCKET) && nbytes == 0 && (read_errno == ETIMEDOUT || read_errno == EAGAIN)) {
       stream->status = BUFIO_EPIPE;
       return -1;  // Stream error
     }
