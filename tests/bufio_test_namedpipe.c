@@ -70,5 +70,7 @@ int main(void)
   assert(gettimeofday(&after, NULL) == 0);
   assert(after.tv_sec + 1e-6 * after.tv_usec - before.tv_sec - 1e-6 * before.tv_usec >= 1.0);
 
+  assert(unlink("test_bufio_namedpipe.fifo") == 0);
+
   return 0;
 }
