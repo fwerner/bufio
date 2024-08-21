@@ -464,7 +464,7 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     ignore_sigpipe(stream->fd);
 
     // Enable non-blocking I/O
-    fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
+    fcntl(stream->fd, F_SETFL, O_RDWR | O_NONBLOCK);
 
     loginetadr(info, "connection established", sa, client_address.sin_port);
 
@@ -632,10 +632,10 @@ application code does not crash during writes to a broken pipe.
       stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
         stream->fd = STDOUT_FILENO;  // Write-only
-        fcntl(stream->fd, F_SETFL, (long)(O_WRONLY | O_NONBLOCK));
+        fcntl(stream->fd, F_SETFL, O_WRONLY | O_NONBLOCK);
       } else if ((stream->mode & O_RDWR) == 0) {
         stream->fd = STDIN_FILENO;  // Read-only
-        fcntl(stream->fd, F_SETFL, (long)(O_NONBLOCK));
+        fcntl(stream->fd, F_SETFL, O_NONBLOCK);
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
@@ -793,7 +793,7 @@ application code does not crash during writes to a broken pipe.
   }
 
   // Enable non-blocking I/O
-  fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
+  fcntl(stream->fd, F_SETFL, O_RDWR | O_NONBLOCK);
 
   if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
     logstring(info, "can not create buffer");
@@ -943,6 +943,7 @@ and the status code of the stream was set.
     if (nbytes == 0 &&
         ((poll_in.revents & POLLIN) || stream->type == BUFIO_FIFO)) {
       // Reached end-of-file
+      debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
       stream->status = BUFIO_EOF;
       bufio_release_read_lock(stream);
       return size - remaining_bytes;
