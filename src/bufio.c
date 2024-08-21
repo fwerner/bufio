@@ -939,9 +939,16 @@ and the status code of the stream was set.
     }
 
     // Read returns 0 to indicate EOF for files and when no writer is attached
-    // to an anonymous or named pipe ("fifo"); see pipe(7)
+    // to a named pipe ("fifo") - or an anonymous pipe (on macOS only!); see pipe(7)
     if (nbytes == 0 &&
         ((poll_in.revents & POLLIN) || stream->type == BUFIO_FIFO)) {
+#ifdef __MACH__
+      if (stream->type == BUFIO_PIPE) {
+        debug_print("pipe error with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+        stream->status = BUFIO_EPIPE;
+        return size - remaining_bytes;
+      }
+#endif
       // Reached end-of-file
       debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
       stream->status = BUFIO_EOF;
@@ -1388,6 +1395,12 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
 
     if (nbytes == -1 && read_errno != EAGAIN && read_errno != EINTR) {
       stream->status = -read_errno;
+      return -1;  // Stream error
+    }
+
+    // When trying a non-blocking read on a pipe where the writer hung up, macOS yields 0 bytes and ETIMEDOUT
+    if (stream->type == BUFIO_PIPE && nbytes == 0 && read_errno == ETIMEDOUT) {
+      stream->status = BUFIO_EPIPE;
       return -1;  // Stream error
     }
 

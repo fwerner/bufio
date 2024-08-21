@@ -50,12 +50,12 @@ int main(void)
 
     // Assert EOF after writer hung up
     struct timeval before, after;
-    assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_EOF);
-    assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_EOF);
+    assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_EPIPE);
+    assert(bufio_wait(si, 0) == -1 && bufio_status(si) == BUFIO_EPIPE);
     assert(gettimeofday(&before, NULL) == 0);
-    assert(bufio_wait(si, 1000) == 0 && bufio_status(si) == BUFIO_EOF);
+    assert(bufio_wait(si, 1000) == -1 && bufio_status(si) == BUFIO_EPIPE);
     assert(gettimeofday(&after, NULL) == 0);
-    assert(after.tv_sec + 1e-6 * after.tv_usec - before.tv_sec - 1e-6 * before.tv_usec >= 1.0);
+    assert(after.tv_sec + 1e-6 * after.tv_usec - before.tv_sec - 1e-6 * before.tv_usec < 1.0);
 
     assert(bufio_close(si) == 0);
 
