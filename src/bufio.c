@@ -721,6 +721,9 @@ application code does not crash during writes to a broken pipe.
       goto close_free_and_out;
     }
 
+    if (stream->type == BUFIO_FIFO || stream->type == BUFIO_PIPE)
+      ignore_sigpipe(stream->fd);
+
     return stream;
   }
 
