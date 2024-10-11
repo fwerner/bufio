@@ -347,14 +347,43 @@ static void ignore_sigpipe(int socket __attribute__((__unused__)))
 
 
 // Poll which automatically restarts on EINTR and EAGAIN
-static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout)
+static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio_stream_type stream_type)
 {
   // TODO: Automatically decrement timeout, use ppoll on Linux
   int rc;
+  int i = 0;
+  int num_loops = 0;
+#ifdef __MACH__
+  if (stream_type == BUFIO_FIFO && timeout != 0) {
+    // Work around macOS returning 0 for named pipes even though data arrives
+    // within the timeout. This bug exists at least up to macOS Sonoma 14.7. We
+    // could simply call poll with timeout = 0 after hitting the timeout. To
+    // reduce the stuttering we split the timeout into periods of at most 20 ms
+    // and repeat poll as many times as requested (indefinitely for timeout = -1).
+    const int max_poll_period_msec = 20;
+    if (timeout == -1) {
+      // Poll indefinitely in short steps
+      num_loops = -1;
+      timeout = max_poll_period_msec;
+    } else if (timeout > 0 && timeout < 2 * max_poll_period_msec) {
+      // Split interval into 2 polls
+      num_loops = 1;
+      if (timeout > 1)
+        timeout /= 2;
+    } else if (timeout >= 2 * max_poll_period_msec) {
+      // Loop as many times as needed in short steps
+      num_loops = timeout / max_poll_period_msec;
+      timeout = max_poll_period_msec;
+    }
+  }
+#else
+  (void) stream_type;
+#endif
 
   do {
     rc = poll(fds, nfds, timeout);
-  } while ((rc == -1) && (errno == EINTR || errno == EAGAIN));
+    debug_print("rc=%d, i=%d, nl=%d, timeout=%d, events=%d, revents=%d, error=%s", rc, i, num_loops, timeout, fds[0].events, fds[0].revents, rc == -1 ? strerror(errno): "none");
+  } while (((rc == -1) && (errno == EINTR || errno == EAGAIN)) || (rc == 0 && num_loops > 0 && i++ < num_loops));
 
   return rc;
 }
@@ -439,7 +468,7 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     poll_in.fd = stream->fd;
     poll_in.events = POLLIN;
 
-    int rc = safe_poll(&poll_in, 1, timeout);
+    int rc = safe_poll(&poll_in, 1, timeout, stream->type);
     if (rc == 0) {
       logstring(info, "listen timeout");
       return 0;
@@ -926,6 +955,7 @@ and the status code of the stream was set.
     read_vec[0].iov_base = (char *) ptr + (size - remaining_bytes);
     read_vec[0].iov_len = remaining_bytes;
 
+    errno = 0;
     ssize_t nbytes = readv(stream->fd, read_vec, 2);
     if (nbytes == -1) {
       if (errno == EAGAIN || errno == EINTR)
@@ -969,7 +999,7 @@ and the status code of the stream was set.
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
-           (poll_rc = safe_poll(&poll_in, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_in, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_in.revents & POLLIN);
 
   bufio_release_read_lock(stream);
@@ -982,7 +1012,7 @@ and the status code of the stream was set.
   else if (poll_in.revents & POLLERR)
     stream->status = -EIO;  // EIO comes closest to "an exceptional condition"
   else if (poll_rc == 0) {
-    debug_print("timeout with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+    debug_print("timeout with %zu remaining bytes (%zu bytes requested, timeout=%d)", remaining_bytes, size, stream->io_timeout_ms);
     stream->status = BUFIO_TIMEDOUT;
   }
 
@@ -1083,7 +1113,7 @@ error has occured and the status code of the stream was set.
       stream->write_lock_offset += nbytes;
       ptr = (char *) ptr + nbytes;
     } while (remaining_bytes > 0 &&
-             (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+             (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
              poll_out.revents == POLLOUT);
 
     if (remaining_bytes == 0)
@@ -1151,7 +1181,7 @@ error has occured and the status code of the stream was set.
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
-           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_out.revents == POLLOUT);
 
   if (remaining_bytes == 0)
@@ -1238,7 +1268,7 @@ of the stream was set.
     output_buffer_head += nbytes;
     stream->write_lock_offset += nbytes;
   } while (output_buffer_head != stream->output_buffer_tail &&
-           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_out.revents == POLLOUT);
 
   bufio_release_write_lock(stream);
@@ -1424,7 +1454,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       poll_in.events = POLLIN;
       poll_in.revents = 0;
 
-      int rc = safe_poll(&poll_in, 1, timeout);
+      int rc = safe_poll(&poll_in, 1, timeout, stream->type);
       if (rc == 0) {
         stream->status = BUFIO_TIMEDOUT;
         return 0;  // Timeout
