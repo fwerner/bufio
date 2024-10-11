@@ -19,14 +19,16 @@
 
 int main(void)
 {
+  const char fname[] = "test_bufio_namedpipe_async.fifo";
+  const char testname[] = "bufio_test_namedpipe_async";
   char buf[16];
 
-  unlink("test_bufio_namedpipe.fifo");
-  assert(mkfifo("test_bufio_namedpipe.fifo", S_IRUSR | S_IWUSR) == 0);
+  unlink(fname);
+  assert(mkfifo(fname, S_IRUSR | S_IWUSR) == 0);
 
   FORK_CHILD
     // Open a reader
-    bufio_stream *si = bufio_open("test_bufio_namedpipe.fifo", "r", 1000, 256, "bufio_test_namedpipe");
+    bufio_stream *si = bufio_open(fname, "r", 1000, 256, testname);
     assert(si != NULL);
 
     // Wait until writer is connected
@@ -42,7 +44,7 @@ int main(void)
 
   FORK_PARENT
     // Open a writer - this waits until a reader is present
-    bufio_stream *so = bufio_open("test_bufio_namedpipe.fifo", "w", 2000, 256, "bufio_test_namedpipe");
+    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
     assert(so != NULL);
 
     // Delay a bit such that bufio_read enters poll()
@@ -56,13 +58,20 @@ int main(void)
 
   FORK_JOIN
 
+  assert(unlink(fname) == 0);
+  assert(mkfifo(fname, S_IRUSR | S_IWUSR) == 0);
+
   // Test poll - which requires a workaround on macOS
   FORK_CHILD
     // Open a reader
-    bufio_stream *si = bufio_open("test_bufio_namedpipe.fifo", "r", 1000, 256, "bufio_test_namedpipe");
+    bufio_stream *si = bufio_open(fname, "r", 1000, 256, testname);
     assert(si != NULL);
 
+    // Wait until writer is present
+    usleep(100000);
+
     // Attempt to read immediately - which will enter poll()
+    bufio_timeout(si, 1000);
     assert(bufio_read(si, buf, 16) == 16);
 
     // Clean up
@@ -70,11 +79,11 @@ int main(void)
 
   FORK_PARENT
     // Open a writer - this waits until a reader is present
-    bufio_stream *so = bufio_open("test_bufio_namedpipe.fifo", "w", 2000, 256, "bufio_test_namedpipe");
+    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
     assert(so != NULL);
 
     // Delay a bit such that bufio_read enters poll()
-    usleep(100000);
+    usleep(250000);
 
     // Write something
     assert(bufio_write(so, buf, 16) == 16 && bufio_flush(so) == 0);
@@ -87,7 +96,6 @@ int main(void)
 
   FORK_JOIN
 
-
-  assert(unlink("test_bufio_namedpipe.fifo") == 0);
+  assert(unlink(fname) == 0);
   return 0;
 }
