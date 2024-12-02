@@ -837,9 +837,8 @@ and the status code of the stream was set.
 
     size_t readable_bytes = stream->mem_size - stream->mem_offset;
     size_t bytes_to_read = size < readable_bytes ? size : readable_bytes;
-    if (bytes_to_read == 0) {
+    if (bytes_to_read < size) {
       stream->status = BUFIO_EOF;
-      return 0;
     }
 
     bufio_memcpy(ptr, stream->mem_addr + stream->mem_offset, bytes_to_read);
@@ -981,6 +980,8 @@ error has occured and the status code of the stream was set.
 
   BUFIO_TIMEDOUT A write operation or poll timed out.
 
+  BUFIO_EOF      Reached end-of-file.
+
   BUFIO_EPIPE    The device or socket has been disconnected or an exceptional
                  condition such as a low-level I/O error has occurred on the
                  device or socket.
@@ -1006,9 +1007,8 @@ error has occured and the status code of the stream was set.
 
     size_t writable_bytes = stream->mem_size - stream->mem_offset;
     size_t bytes_to_write = size < writable_bytes ? size : writable_bytes;
-    if (bytes_to_write == 0) {
+    if (bytes_to_write < size) {
       stream->status = BUFIO_EOF;
-      return 0;
     }
 
     bufio_memcpy(stream->mem_addr + stream->mem_offset, ptr, bytes_to_write);
