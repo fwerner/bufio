@@ -57,7 +57,7 @@ flushing and closing a bufio stream.
 #include <unistd.h>
 
 #ifndef BUFIO_DEBUG
-#define BUFIO_DEBUG 0
+#define BUFIO_DEBUG 1
 #endif
 
 #define BUFIO_DEBUG_PRINT_INTERNAL(fmt, ...) \
