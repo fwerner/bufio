@@ -383,7 +383,8 @@ static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio
   do {
     rc = poll(fds, nfds, timeout);
     debug_print("rc=%d, i=%d, nl=%d, timeout=%d, events=%d, revents=%d, error=%s", rc, i, num_loops, timeout, fds[0].events, fds[0].revents, rc == -1 ? strerror(errno): "none");
-  } while (((rc == -1) && (errno == EINTR || errno == EAGAIN)) || (rc == 0 && num_loops > 0 && i++ < num_loops));
+  } while (((rc == -1) && (errno == EINTR || errno == EAGAIN)) ||
+           (rc == 0 && (num_loops < 0 || i++ < num_loops)));  // num_loops < 0 polls indefinitely
 
   return rc;
 }
