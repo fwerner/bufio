@@ -69,6 +69,13 @@ flushing and closing a bufio stream.
 // Thread-specific indicator whether a file locking operation timed out
 static __thread volatile sig_atomic_t lock_timeout = 0;
 
+// Original fcntl status flags of the standard streams, saved when a "-"
+// stream enables O_NONBLOCK process-wide and restored on bufio_close.
+// -1 means "nothing saved". Note: not safe for concurrent opens of the same
+// stdio fd (the library already assumes sole ownership of the fd).
+static int stdin_saved_fl = -1;
+static int stdout_saved_fl = -1;
+
 static void lock_timeout_handler(int signo)
 {
   assert(signo == SIGALRM);
@@ -679,13 +686,17 @@ application code does not crash during writes to a broken pipe.
       if (stream->mode & O_WRONLY) {
         stream->fd = STDOUT_FILENO;  // Write-only
         int std_flags = fcntl(stream->fd, F_GETFL);
-        if (std_flags != -1)
+        if (std_flags != -1) {
+          stdout_saved_fl = std_flags;
           fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
+        }
       } else if ((stream->mode & O_RDWR) == 0) {
         stream->fd = STDIN_FILENO;  // Read-only
         int std_flags = fcntl(stream->fd, F_GETFL);
-        if (std_flags != -1)
+        if (std_flags != -1) {
+          stdin_saved_fl = std_flags;
           fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
+        }
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
@@ -1550,6 +1561,18 @@ list of possible error codes.
 {
   if (!stream)
     return 0;
+
+  // Restore stdio flags saved at open: O_NONBLOCK was set process-wide
+  // (flags live on the open-file description, so this also repairs dup'd
+  // fds sharing it). Must run before close() below.
+  if (stream->type == BUFIO_PIPE &&
+      (stream->fd == STDIN_FILENO || stream->fd == STDOUT_FILENO)) {
+    int *saved = (stream->fd == STDIN_FILENO) ? &stdin_saved_fl : &stdout_saved_fl;
+    if (*saved != -1) {
+      fcntl(stream->fd, F_SETFL, *saved);
+      *saved = -1;
+    }
+  }
 
   // Flush buffers, synchronise and close file descriptor
   int retval = 0;
