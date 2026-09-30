@@ -389,6 +389,20 @@ static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio
 }
 
 
+// A 0-byte read on a regular file or character device (e.g. stdin
+// redirected from a file or /dev/null) always means EOF. This is checked
+// with fstat rather than poll: on macOS, poll() on /dev/null doesn't report
+// POLLIN, while regular files do report POLLIN on macOS and Linux. Pipes stat
+// as FIFOs and sockets as sockets, so fstat separates file/device backing
+// from pipes deterministically on all platforms.
+static inline int fd_is_file_or_dev(int fd)
+{
+  struct stat st;
+  return fstat(fd, &st) == 0 &&
+         (S_ISREG(st.st_mode) || S_ISCHR(st.st_mode));
+}
+
+
 static inline void *bufio_memcpy(void *dst, const void *src, size_t n)
 {
   if (n == sizeof(int)) {
@@ -971,6 +985,14 @@ and the status code of the stream was set.
       return size - remaining_bytes;
     }
 
+    // A 0-byte read on a file/device-backed fd means EOF
+    if (nbytes == 0 && fd_is_file_or_dev(stream->fd)) {
+      debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+      stream->status = BUFIO_EOF;
+      bufio_release_read_lock(stream);
+      return size - remaining_bytes;
+    }
+
     // Read returns 0 to indicate EOF for files and when no writer is attached
     // to a named pipe ("fifo") - or an anonymous pipe (on macOS only!); see pipe(7)
     if (nbytes == 0 &&
@@ -1431,10 +1453,17 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       return -1;  // Stream error
     }
 
-    // When trying a non-blocking read on a TCP connection in CLOSE_WAIT state or on a pipe where the writer hung up
-    // - macOS yields 0 bytes and ETIMEDOUT, while
-    // - Linux yields 0 bytes and EAGAIN.
-    if ((stream->type == BUFIO_PIPE || stream->type == BUFIO_SOCKET) && nbytes == 0 && (read_errno == ETIMEDOUT || read_errno == EAGAIN)) {
+    // A 0-byte read on a socket means the peer shut down
+    if (nbytes == 0 && stream->type == BUFIO_SOCKET) {
+      stream->status = BUFIO_EPIPE;
+      return -1;  // Stream error
+    }
+
+    // A 0-byte read on a pipe means the writer hung up (EPIPE), unless the
+    // fd is file/device-backed (see fd_is_file_or_dev), in which case it is
+    // EOF and falls through to the handling below
+    if (nbytes == 0 && stream->type == BUFIO_PIPE &&
+        !fd_is_file_or_dev(stream->fd)) {
       stream->status = BUFIO_EPIPE;
       return -1;  // Stream error
     }
