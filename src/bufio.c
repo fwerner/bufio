@@ -52,6 +52,7 @@ flushing and closing a bufio stream.
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -392,7 +393,8 @@ static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio
 
   do {
     rc = poll(fds, nfds, timeout);
-    debug_print("rc=%d, i=%d, nl=%d, timeout=%d, events=%d, revents=%d, error=%s", rc, i, num_loops, timeout, fds[0].events, fds[0].revents, rc == -1 ? strerror(errno): "none");
+    if (BUFIO_DEBUG && nfds > 0)
+      debug_print("rc=%d, i=%d, nl=%d, timeout=%d, events=%d, revents=%d, error=%s", rc, i, num_loops, timeout, fds[0].events, fds[0].revents, rc == -1 ? strerror(errno): "none");
   } while (((rc == -1) && (errno == EINTR || errno == EAGAIN)) ||
            (rc == 0 && (num_loops < 0 || i++ < num_loops)));  // num_loops < 0 polls indefinitely
 
@@ -400,8 +402,8 @@ static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio
 }
 
 
-// A 0-byte read on a regular file or character device (e.g. stdin
-// redirected from a file or /dev/null) always means EOF. This is checked
+// A 0-byte read on a regular file or (character or block) device (e.g.
+// stdin redirected from a file or /dev/null) always means EOF. This is checked
 // with fstat rather than poll: on macOS, poll() on /dev/null doesn't report
 // POLLIN, while regular files do report POLLIN on macOS and Linux. Pipes stat
 // as FIFOs and sockets as sockets, so fstat separates file/device backing
@@ -410,7 +412,16 @@ static inline int fd_is_file_or_dev(int fd)
 {
   struct stat st;
   return fstat(fd, &st) == 0 &&
-         (S_ISREG(st.st_mode) || S_ISCHR(st.st_mode));
+         (S_ISREG(st.st_mode) || S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode));
+}
+
+
+// Millisecond sleep replacing the deprecated usleep(). Unlike usleep,
+// nanosleep does not touch errno on success (usleep does even so on macOS).
+static inline void sleep_msec(long msec)
+{
+  struct timespec ts = { msec / 1000, (msec % 1000) * 1000000L };
+  nanosleep(&ts, NULL);
 }
 
 
@@ -749,7 +760,7 @@ pipe.
           break;  // genuine error, not "no reader attached"
 
         // For a writer on namedpipe, wait for a reading process until the timeout is reached
-        usleep(50000);
+        sleep_msec(50);
         if (timeout != -1)
           timeout -= 50;
       }
@@ -757,6 +768,17 @@ pipe.
       if (stream->fd == -1) {
         log2string(info, "failed to open file with mode", opt, name);
         goto free_and_out;
+      }
+
+      // TOCTOU guard: the path may have been replaced between stat() and
+      // open() (only write-mode opens can create). A FIFO-typed stream on
+      // a non-FIFO fd would misapply FIFO EOF/EPIPE semantics, so fail.
+      if (stream->type == BUFIO_FIFO) {
+        struct stat fd_stat;
+        if (fstat(stream->fd, &fd_stat) != 0 || !S_ISFIFO(fd_stat.st_mode)) {
+          log2string(info, "file replaced between stat and open", opt, name);
+          goto close_free_and_out;
+        }
       }
     }
 
@@ -855,11 +877,8 @@ pipe.
         }
         ignore_sigpipe(stream->fd);
       }
-      usleep(50000);
+      sleep_msec(50);
       timeout -= 50;
-#ifdef __APPLE__
-      errno = 0;  // On OS X, usleep sets errno even on success
-#endif
     }
 
     if (rc != 0) {
@@ -1550,12 +1569,12 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
     // TODO: Protect from signals and measure actual sleep time
     // TODO: Wait for SIGIO instead of sleeping?
     if (timeout < 0) {
-      usleep(50000);  // blocking wait: sleep without decrementing
+      sleep_msec(50);  // blocking wait: sleep without decrementing
     } else if (timeout > 50) {
-      usleep(50000);
+      sleep_msec(50);
       timeout -= 50;
     } else {
-      usleep(timeout * 1000);
+      sleep_msec(timeout);
       timeout = 0;
     }
   }
@@ -1729,6 +1748,9 @@ Returns a description of the status of stream.
 {
   if (!stream)
     return "closed";
+
+  if (stream->status == BUFIO_EPIPE)
+    return "broken pipe";
 
   if (stream->status < 0)
     return strerror(-stream->status);

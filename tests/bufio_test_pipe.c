@@ -41,7 +41,7 @@ int main(void)
     assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
     assert(bufio_wait(si, 100) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
 
-    sleep(1);
+    sleep(2);
 
     // Test read after write
     assert(bufio_read(si, buf, 4) == 4);

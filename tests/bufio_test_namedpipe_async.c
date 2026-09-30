@@ -34,8 +34,10 @@ int main(void)
     // Wait until writer is connected
     bufio_timeout(si, 1000);
     size_t nread = 0;
-    while ((nread = bufio_read(si, buf, 16)) == 0)
-        assert(bufio_status(si) == BUFIO_EOF);
+    while ((nread = bufio_read(si, buf, 16)) == 0) {
+      assert(bufio_status(si) == BUFIO_EOF);
+      usleep(10000);  // avoid hot spin while waiting for the writer
+    }
 
     assert(nread == 16);
 
