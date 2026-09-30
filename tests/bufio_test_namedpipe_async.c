@@ -90,7 +90,44 @@ int main(void)
 
     // Keep open until the reader would time out (if poll were broken)
     usleep(1500000);
-  
+
+    // Clean up
+    assert(bufio_close(so) == 0);
+
+  FORK_JOIN
+
+  assert(unlink(fname) == 0);
+  assert(mkfifo(fname, S_IRUSR | S_IWUSR) == 0);
+
+  // Test infinite-timeout poll (-1): must block until data arrives
+  FORK_CHILD
+    // Open a reader
+    bufio_stream *si = bufio_open(fname, "r", 1000, 256, testname);
+    assert(si != NULL);
+
+    // Wait until writer is present (a read with no writer attached
+    // returns EOF immediately without polling)
+    usleep(100000);
+
+    // Blocking read - returns only once the writer sends data
+    bufio_timeout(si, -1);
+    assert(bufio_read(si, buf, 16) == 16);
+
+    // Clean up
+    assert(bufio_close(si) == 0);
+
+  FORK_PARENT
+    // Open a writer - this waits until a reader is present
+    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
+    assert(so != NULL);
+
+    // Delay well past the 20 ms poll slice: a broken single-slice poll
+    // would already have timed out before the data arrives
+    usleep(250000);
+
+    // Write something
+    assert(bufio_write(so, buf, 16) == 16 && bufio_flush(so) == 0);
+
     // Clean up
     assert(bufio_close(so) == 0);
 
