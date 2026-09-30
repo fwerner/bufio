@@ -26,7 +26,7 @@ extern "C" {
 typedef enum {
   BUFIO_INVALID_TYPE = 0,  // Uninitialised
   BUFIO_SOCKET,            // TCP or UDP socket
-  BUFIO_FILE,              // File or named pipe
+  BUFIO_FILE,              // Regular file
   BUFIO_LOCKEDFILE,        // File or named pipe with locking
   BUFIO_PIPE,              // Standard stream (stdin, stdout)
   BUFIO_FIFO,              // Named pipe (FIFO)
@@ -35,10 +35,10 @@ typedef enum {
 } bufio_stream_type;
 
 typedef enum {
-  BUFIO_EPIPE = -1,    // Device or socket has been disconnected or an I/O error occured
+  BUFIO_EPIPE = -1,    // Writer hung up, peer shut down, or another I/O error occured
   BUFIO_OKAY = 0,      // Success
   BUFIO_TIMEDOUT = 1,  // Poll or I/O operation timed out
-  BUFIO_EOF = 2        // Reached end-of-file
+  BUFIO_EOF = 2        // End-of-file (regular files; also FIFOs with no writer attached)
 } bufio_stream_status;
 
 typedef struct {

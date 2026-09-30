@@ -554,12 +554,17 @@ tty://dev/ttyUS0/raw/speed:9600 or pipe://read/pipefile
 opt specifies the mode of file I/O, if a file has been opened. See fopen(3)
 for modes supported. This parameter is currently ignored for tcp streams,
 which are always bidirectional. Also, standard streams (stdin, stdout) are
-unidirectional. If required, files are created with rw-rw-r--.
+unidirectional. Opening "-" enables non-blocking I/O on the underlying
+standard stream for the lifetime of the stream (the original flags are
+restored on bufio_close); bufio_close also closes the underlying file
+descriptor. If required, files are created with rw-rw-r--.
 
 timeout specifies the time to wait for a connection in milliseconds. Specify
 -1 to block indefinitely. If the target is a named pipe (created with mkfifo)
 and mode is "w", bufio_open waits this amount of time for a reader to attach
-to the pipe.
+to the pipe (checked in 50 ms steps; smaller positive timeouts are extended
+to 50 ms). Opening a named pipe in mode "r" doesn't wait: it succeeds
+immediately, and reads report BUFIO_EOF until a writer attaches.
 
 bufsize specifies the buffer size in Byte. If 0 a default value will be used.
 
@@ -596,10 +601,12 @@ On systems which do not support ignoring SIGPIPE for specific file descriptors
 
   signal(SIGPIPE, SIG_IGN);
 
-This may affect the rest of your code, but there is no other way to avoid the
-horror of signalling in Unix kernels. SIGPIPE signals can be enabled manually
-afterwards, but this is at your risk and care has to be taken that the
-application code does not crash during writes to a broken pipe.
+This also applies when opening pipes and named pipes (FIFOs), not just
+sockets. This may affect the rest of your code, but there is no other way
+to avoid the horror of signalling in Unix kernels. SIGPIPE signals can be
+enabled manually afterwards, but this is at your risk and care has to be
+taken that the application code does not crash during writes to a broken
+pipe.
 
 //----------------------------------------------------------------------------*/
 {
@@ -903,11 +910,16 @@ and the status code of the stream was set.
 
   BUFIO_TIMEDOUT A read operation or poll timed out.
 
-  BUFIO_EOF      Reached end-of-file. Use bufio_wait to wait for new data.
+  BUFIO_EOF      Reached end-of-file: regular files, or a named pipe (FIFO)
+                 with no writer attached. The latter is retryable (use
+                 bufio_wait to wait for new data or for a writer to attach).
+                 Stdin backed by a file or device (e.g. "./prog < input.txt",
+                 /dev/null) also reports EOF.
 
-  BUFIO_EPIPE    The device or socket has been disconnected or an exceptional
-                 condition such as a low-level I/O error has occurred on the
-                 device or socket.
+  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the device or
+                 socket has been disconnected, or an exceptional condition
+                 such as a low-level I/O error has occurred on the device
+                 or socket.
 
 //----------------------------------------------------------------------------*/
 
@@ -1015,8 +1027,9 @@ and the status code of the stream was set.
       return size - remaining_bytes;
     }
 
-    // Read returns 0 to indicate EOF for files and when no writer is attached
-    // to a named pipe ("fifo") - or an anonymous pipe (on macOS only!); see pipe(7)
+    // Read returns 0 to indicate EOF when POLLIN is pending or when no
+    // writer is attached to a named pipe ("fifo") - or an anonymous pipe
+    // (on macOS only!); regular files and devices return above; see pipe(7)
     if (nbytes == 0 &&
         ((poll_in.revents & POLLIN) || stream->type == BUFIO_FIFO)) {
 #ifdef __MACH__
@@ -1407,11 +1420,15 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
 
   BUFIO_TIMEDOUT A read operation or poll timed out.
 
-  BUFIO_EOF      Reached end-of-file.
+  BUFIO_EOF      Reached end-of-file: regular files, a named pipe (FIFO)
+                 with no writer attached, or stdin backed by a file or device.
+                 Waiting again is useful for FIFOs, where a writer may still
+                 attach.
 
-  BUFIO_EPIPE    The device or socket has been disconnected or an exceptional
-                 condition such as a low-level I/O error has occurred on the
-                 device or socket.
+  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the peer shut
+                 down the socket connection, or an exceptional condition
+                 such as a low-level I/O error has occurred on the device
+                 or socket.
 
 //----------------------------------------------------------------------------*/
 {
