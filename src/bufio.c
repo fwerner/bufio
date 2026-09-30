@@ -378,8 +378,11 @@ static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio
       if (timeout > 1)
         timeout /= 2;
     } else if (timeout >= 2 * max_poll_period_msec) {
-      // Loop as many times as needed in short steps
-      num_loops = timeout / max_poll_period_msec;
+      // Loop as many times as needed in short steps: the initial poll
+      // plus num_loops retries cover the requested timeout (exact for
+      // multiples of the slice, overshooting by less than one slice
+      // otherwise)
+      num_loops = (timeout + max_poll_period_msec - 1) / max_poll_period_msec - 1;
       timeout = max_poll_period_msec;
     }
   }
@@ -1036,6 +1039,7 @@ and the status code of the stream was set.
       if (stream->type == BUFIO_PIPE) {
         debug_print("pipe error with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
         stream->status = BUFIO_EPIPE;
+        bufio_release_read_lock(stream);
         return size - remaining_bytes;
       }
 #endif
