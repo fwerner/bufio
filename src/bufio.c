@@ -507,8 +507,10 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     stream->fd = cs;
     ignore_sigpipe(stream->fd);
 
-    // Enable non-blocking I/O
-    fcntl(stream->fd, F_SETFL, O_RDWR | O_NONBLOCK);
+    // Enable non-blocking I/O (preserving existing status flags)
+    int flags = fcntl(stream->fd, F_GETFL);
+    if (flags != -1)
+      fcntl(stream->fd, F_SETFL, flags | O_NONBLOCK);
 
     loginetadr(info, "connection established", sa, client_address.sin_port);
 
@@ -676,10 +678,14 @@ application code does not crash during writes to a broken pipe.
       stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
         stream->fd = STDOUT_FILENO;  // Write-only
-        fcntl(stream->fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+        int std_flags = fcntl(stream->fd, F_GETFL);
+        if (std_flags != -1)
+          fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
       } else if ((stream->mode & O_RDWR) == 0) {
         stream->fd = STDIN_FILENO;  // Read-only
-        fcntl(stream->fd, F_SETFL, O_NONBLOCK);
+        int std_flags = fcntl(stream->fd, F_GETFL);
+        if (std_flags != -1)
+          fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
@@ -693,7 +699,7 @@ application code does not crash during writes to a broken pipe.
 
       int stat_rc;
       struct stat statbuf;
-      if ((stat_rc = stat(name, &statbuf) == -1) && (errno != ENOENT || !(stream->mode & O_CREAT))) {
+      if ((stat_rc = stat(name, &statbuf)) == -1 && (errno != ENOENT || !(stream->mode & O_CREAT))) {
         log1string(info, "stat failed --", strerror(errno));
         goto free_and_out;
       }
@@ -717,7 +723,9 @@ application code does not crash during writes to a broken pipe.
         if (stream->type != BUFIO_FIFO || !(stream->mode & O_WRONLY) || (timeout >= 0 && timeout < 50))
           break;
 
-        assert(stream->type == BUFIO_FIFO && errno == ENXIO);
+        assert(stream->type == BUFIO_FIFO);
+        if (errno != ENXIO)
+          break;  // genuine error, not "no reader attached"
 
         // For a writer on namedpipe, wait for a reading process until the timeout is reached
         usleep(50000);
@@ -839,8 +847,10 @@ application code does not crash during writes to a broken pipe.
     }
   }
 
-  // Enable non-blocking I/O
-  fcntl(stream->fd, F_SETFL, O_RDWR | O_NONBLOCK);
+  // Enable non-blocking I/O (preserving existing status flags)
+  int sock_flags = fcntl(stream->fd, F_GETFL);
+  if (sock_flags != -1)
+    fcntl(stream->fd, F_SETFL, sock_flags | O_NONBLOCK);
 
   if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
     logstring(info, "can not create buffer");
@@ -1507,7 +1517,9 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
     // non-blocking read
     // TODO: Protect from signals and measure actual sleep time
     // TODO: Wait for SIGIO instead of sleeping?
-    if (timeout > 50) {
+    if (timeout < 0) {
+      usleep(50000);  // blocking wait: sleep without decrementing
+    } else if (timeout > 50) {
       usleep(50000);
       timeout -= 50;
     } else {
