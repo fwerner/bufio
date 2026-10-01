@@ -7,7 +7,7 @@
  *
  * Contact:
  * - main authors: felix.werner@mpi-hd.mpg.de
- * - upstream URL: https://www.mpi-hd.mpg.de/hinton/software
+ * - upstream URL: https://github.com/fwerner/bufio/
  */
 
 
