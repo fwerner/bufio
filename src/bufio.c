@@ -576,6 +576,9 @@ to the pipe (checked in 50 ms steps; smaller positive timeouts are extended
 to 50 ms). Opening a named pipe in mode "r" doesn't wait: it succeeds
 immediately, and reads report BUFIO_EOF until a writer attaches.
 
+Poll and I/O operations on a newly opened stream block indefinitely by
+default; use bufio_timeout() to change this.
+
 bufsize specifies the buffer size in Byte. If 0 a default value will be used.
 
 info is used as a prefix for log messages to stderr. If Null, no logging is
@@ -658,6 +661,10 @@ pipe.
     logstring(info, "failed to allocate stream: out of memory");
     return NULL;
   }
+
+  // I/O and poll operations block indefinitely unless bufio_timeout()
+  // is used to change this (applies to all stream types).
+  stream->io_timeout_ms = -1;
 
   // No saved fcntl flags unless a "-" stream is opened below.
   stream->saved_fl = -1;
@@ -1642,7 +1649,8 @@ int bufio_timeout(bufio_stream *stream, int msec)
 
 /*--- Description ------------------------------------------------------------//
 
-Sets the timeout for poll and I/O operations. If timeout is greater than zero,
+Sets the timeout for poll and I/O operations. Newly opened streams start
+with -1 (block indefinitely) for all stream types. If timeout is greater than zero,
 it specifies a maximum interval (in milliseconds) to wait for poll and I/O
 operations. If timeout is zero, then poll and I/O operations will return
 without blocking. If the value of timeout is -1, poll and I/O operations block

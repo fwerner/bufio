@@ -36,6 +36,9 @@ int main(void)
     bufio_stream *si = bufio_open("-", "r", 100, 256, "bufio_test_pipe");
     assert(si != NULL);
 
+    // I/O operations block by default; opt into a timeout for the checks below
+    bufio_timeout(si, 100);
+
     // Assert no initial data
     assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);
     assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);

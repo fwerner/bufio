@@ -36,6 +36,9 @@ int main(void)
   bufio_stream *si = bufio_open("test_bufio_namedpipe.fifo", "r", 1000, 256, "bufio_test_namedpipe");
   assert(si != NULL);
 
+  // I/O operations block by default; opt into a timeout for the checks below
+  bufio_timeout(si, 100);
+
   // Open a writer: this should be much quicker than before
   assert(gettimeofday(&before, NULL) == 0);
   so = bufio_open("test_bufio_namedpipe.fifo", "w", 1000, 256, "bufio_test_namedpipe");
