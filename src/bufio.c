@@ -70,13 +70,6 @@ flushing and closing a bufio stream.
 // Thread-specific indicator whether a file locking operation timed out
 static __thread volatile sig_atomic_t lock_timeout = 0;
 
-// Original fcntl status flags of the standard streams, saved when a "-"
-// stream enables O_NONBLOCK process-wide and restored on bufio_close.
-// -1 means "nothing saved". Note: not safe for concurrent opens of the same
-// stdio fd (the library already assumes sole ownership of the fd).
-static int stdin_saved_fl = -1;
-static int stdout_saved_fl = -1;
-
 static void lock_timeout_handler(int signo)
 {
   assert(signo == SIGALRM);
@@ -568,10 +561,13 @@ tty://dev/ttyUS0/raw/speed:9600 or pipe://read/pipefile
 opt specifies the mode of file I/O, if a file has been opened. See fopen(3)
 for modes supported. This parameter is currently ignored for tcp streams,
 which are always bidirectional. Also, standard streams (stdin, stdout) are
-unidirectional. Opening "-" enables non-blocking I/O on the underlying
-standard stream for the lifetime of the stream (the original flags are
-restored on bufio_close); bufio_close also closes the underlying file
-descriptor. If required, files are created with rw-rw-r--.
+unidirectional. Opening "-" duplicates the underlying standard stream and
+operates on the duplicate, so bufio_close leaves the standard streams
+themselves open (downstream readers see EOF only once the process closes
+them or exits). Non-blocking I/O is enabled for the lifetime of the stream
+(the original flags are restored on bufio_close). Standard input redirected
+from a named pipe (FIFO) reports EPIPE rather than EOF when no writer is
+attached. If required, files are created with rw-rw-r--.
 
 timeout specifies the time to wait for a connection in milliseconds. Specify
 -1 to block indefinitely. If the target is a named pipe (created with mkfifo)
@@ -663,6 +659,9 @@ pipe.
     return NULL;
   }
 
+  // No saved fcntl flags unless a "-" stream is opened below.
+  stream->saved_fl = -1;
+
   // Set stream mode and type
   stream->mode = O_NONBLOCK;
   if (type == 'f') {
@@ -702,26 +701,32 @@ pipe.
   // Handle file open
   if (stream->type == BUFIO_FILE) {
     if (strcmp(peername, "-") == 0) {
-      // Handle standard streams (unidirectional)
+      // Handle standard streams (unidirectional). The fd is duplicated so
+      // that bufio_close() leaves the standard streams themselves open.
       stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
-        stream->fd = STDOUT_FILENO;  // Write-only
-        int std_flags = fcntl(stream->fd, F_GETFL);
-        if (std_flags != -1) {
-          stdout_saved_fl = std_flags;
-          fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
+        stream->fd = dup(STDOUT_FILENO);  // Write-only
+        if (stream->fd == -1) {
+          logstring(info, "failed to duplicate stdout");
+          goto free_and_out;
         }
       } else if ((stream->mode & O_RDWR) == 0) {
-        stream->fd = STDIN_FILENO;  // Read-only
-        int std_flags = fcntl(stream->fd, F_GETFL);
-        if (std_flags != -1) {
-          stdin_saved_fl = std_flags;
-          fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
+        stream->fd = dup(STDIN_FILENO);  // Read-only
+        if (stream->fd == -1) {
+          logstring(info, "failed to duplicate stdin");
+          goto free_and_out;
         }
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
         goto free_and_out;
+      }
+      // Force non-blocking I/O, saving the original flags for bufio_close.
+      // Flags live on the open-file description shared with the original fd.
+      int std_flags = fcntl(stream->fd, F_GETFL);
+      if (std_flags != -1) {
+        stream->saved_fl = std_flags;
+        fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
       }
     } else {
       if (sscanf(peername, "lockedfile://%1024s", name) > 0)
@@ -938,8 +943,8 @@ and the status code of the stream was set.
                  Stdin backed by a file or device (e.g. "./prog < input.txt",
                  /dev/null) also reports EOF.
 
-  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the device or
-                 socket has been disconnected, or an exceptional condition
+  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the peer shut
+                 down the socket connection, or an exceptional condition
                  such as a low-level I/O error has occurred on the device
                  or socket.
 
@@ -1602,16 +1607,12 @@ list of possible error codes.
   if (!stream)
     return 0;
 
-  // Restore stdio flags saved at open: O_NONBLOCK was set process-wide
-  // (flags live on the open-file description, so this also repairs dup'd
-  // fds sharing it). Must run before close() below.
-  if (stream->type == BUFIO_PIPE &&
-      (stream->fd == STDIN_FILENO || stream->fd == STDOUT_FILENO)) {
-    int *saved = (stream->fd == STDIN_FILENO) ? &stdin_saved_fl : &stdout_saved_fl;
-    if (*saved != -1) {
-      fcntl(stream->fd, F_SETFL, *saved);
-      *saved = -1;
-    }
+  // Restore stdio flags saved at open ("-" streams only; saved_fl is -1
+  // otherwise). Must run before close() below; the dup'd fd shares the
+  // open-file description with the standard stream.
+  if (stream->saved_fl != -1) {
+    fcntl(stream->fd, F_SETFL, stream->saved_fl);
+    stream->saved_fl = -1;
   }
 
   // Flush buffers, synchronise and close file descriptor

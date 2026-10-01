@@ -65,6 +65,7 @@ typedef struct {
   char *mem_addr;             // Pointer to mem:// field
   size_t mem_size;            // Size of mem:// field
   size_t mem_offset;          // Read/Write offset into mem:// field
+  int saved_fl;               // fcntl status flags saved before forcing O_NONBLOCK on "-" streams (-1 if none)
 } bufio_stream;
 
 bufio_stream *bufio_open(const char *peername, const char *opt, int timeout,

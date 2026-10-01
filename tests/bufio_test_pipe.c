@@ -72,10 +72,12 @@ int main(void)
     sleep(1);
     assert(bufio_write(so, buf, 4) == 4 && bufio_flush(so) == 0);
 
-    // Close writer (and the duplicate fd)
+    // Close writer (and the duplicate fd). bufio leaves standard streams
+    // open, so stdout must be closed explicitly to propagate EOF/hangup.
     sleep(1);
     assert(bufio_close(so) == 0);
     close(p[1]);
+    close(STDOUT_FILENO);
 
   FORK_JOIN
   return 0;
