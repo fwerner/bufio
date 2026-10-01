@@ -39,6 +39,7 @@ typedef enum {
   BUFIO_OKAY = 0,      // Success
   BUFIO_TIMEDOUT = 1,  // Poll or I/O operation timed out
   BUFIO_EOF = 2        // End-of-file (regular files; also FIFOs with no writer attached)
+  BUFIO_NOSPACE = 3    // Not enough space available for write operation. Only returned when writing to mem:// (so far)
 } bufio_stream_status;
 
 typedef struct {

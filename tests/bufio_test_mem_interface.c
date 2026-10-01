@@ -82,6 +82,18 @@ int main(void) {
   bufio_set_mem_field(bfs, mem_buf, BUF_SIZE);
   assert(bufio_close(bfs) == 0);
 
+  bfs = bufio_open("mem://0/0","w",0, 0, "bufio_test_mem_interface");
+  bufio_set_mem_field(bfs, mem_buf, 2);
+  assert(bufio_write(bfs, write_buf, 4) == 2);
+  assert(bufio_status(bfs) == BUFIO_NOSPACE);
+  assert(bufio_close(bfs) == 0);
+
+  bfs = bufio_open("mem://0/0","r",0, 0, "bufio_test_mem_interface");
+  bufio_set_mem_field(bfs, mem_buf, 2);
+  assert(bufio_read(bfs, read_buf, 4) == 2);
+  assert(bufio_status(bfs) == BUFIO_EOF);
+  assert(bufio_close(bfs) == 0);
+
   free(mem_string);
 
   return 0;
