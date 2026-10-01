@@ -1074,6 +1074,14 @@ and the status code of the stream was set.
         return size - remaining_bytes;
       }
 #endif
+      // An orderly peer shutdown on a socket is terminal: no data will
+      // ever arrive again, so report EPIPE rather than EOF.
+      if (stream->type == BUFIO_SOCKET) {
+        debug_print("socket shutdown with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+        stream->status = BUFIO_EPIPE;
+        bufio_release_read_lock(stream);
+        return size - remaining_bytes;
+      }
       // Reached end-of-file
       debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
       stream->status = BUFIO_EOF;
