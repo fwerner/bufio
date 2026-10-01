@@ -572,9 +572,10 @@ attached. If required, files are created with rw-rw-r--.
 timeout specifies the time to wait for a connection in milliseconds. Specify
 -1 to block indefinitely. If the target is a named pipe (created with mkfifo)
 and mode is "w", bufio_open waits this amount of time for a reader to attach
-to the pipe (checked in 50 ms steps; smaller positive timeouts are extended
-to 50 ms). Opening a named pipe in mode "r" doesn't wait: it succeeds
-immediately, and reads report BUFIO_EOF until a writer attaches.
+to the pipe (checked in 50 ms steps with an exact final partial step;
+smaller positive timeouts are extended to 50 ms). Opening a named pipe in mode
+"r" doesn't wait: it succeeds immediately, and reads report BUFIO_EOF until a
+writer attaches.
 
 Poll and I/O operations on a newly opened stream block indefinitely by
 default; use bufio_timeout() to change this.
@@ -772,9 +773,17 @@ pipe.
           break;  // genuine error, not "no reader attached"
 
         // For a writer on namedpipe, wait for a reading process until the timeout is reached
-        sleep_msec(50);
-        if (timeout != -1)
+        if (timeout == 0)
+          break;  // fail fast
+        if (timeout > 50) {
+          sleep_msec(50);
           timeout -= 50;
+        } else if (timeout == -1) {
+          sleep_msec(50);  // wait indefinitely
+        } else {
+          sleep_msec(timeout);  // final partial slice, then retry once below
+          timeout = 0;
+        }
       }
 
       if (stream->fd == -1) {
