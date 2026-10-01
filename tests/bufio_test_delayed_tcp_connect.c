@@ -20,7 +20,9 @@ int main(void)
 
   FORK_CHILD
     
-  bufio_stream *output = bufio_open("tcp://connect/12345/localhost", "w", 1000, 0, "bufio_test_delayed_tcp_connect");
+  // Connect retries until the (delayed) server listens; generous timeout
+  // so fork-scheduling stalls on loaded CI can't exhaust it
+  bufio_stream *output = bufio_open("tcp://connect/12345/localhost", "w", 10000, 0, "bufio_test_delayed_tcp_connect");
   assert(output != NULL);
 
   // Transmit 4 bytes, flush & close

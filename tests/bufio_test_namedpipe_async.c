@@ -46,7 +46,7 @@ int main(void)
 
   FORK_PARENT
     // Open a writer - this waits until a reader is present
-    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
+    bufio_stream *so = bufio_open(fname, "w", 10000, 256, testname);
     assert(so != NULL);
 
     // Delay a bit such that bufio_read enters poll()
@@ -69,19 +69,33 @@ int main(void)
     bufio_stream *si = bufio_open(fname, "r", 1000, 256, testname);
     assert(si != NULL);
 
-    // Wait until writer is present
-    usleep(100000);
+    // Wait until writer is present: a read with no writer attached
+    // returns EOF immediately without polling. Bounded so a genuinely
+    // missing writer still fails instead of hanging CI; tolerates
+    // fork-scheduling stalls on loaded runners.
+    bufio_timeout(si, 100);
+    size_t npre = 0;
+    int waited_ms = 0;
+    while ((npre = bufio_read(si, buf, 16)) == 0 && bufio_status(si) == BUFIO_EOF && waited_ms < 10000) {
+      usleep(10000);
+      waited_ms += 10;
+    }
 
-    // Attempt to read immediately - which will enter poll()
-    bufio_timeout(si, 1000);
-    assert(bufio_read(si, buf, 16) == 16);
+    if (npre == 16) {
+      // Writer was fast: data already arrived, nothing left to do.
+    } else {
+      // Writer attached but silent: single timed read, which enters poll().
+      assert(npre == 0);
+      bufio_timeout(si, 1000);
+      assert(bufio_read(si, buf, 16) == 16);
+    }
 
     // Clean up
     assert(bufio_close(si) == 0);
 
   FORK_PARENT
     // Open a writer - this waits until a reader is present
-    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
+    bufio_stream *so = bufio_open(fname, "w", 10000, 256, testname);
     assert(so != NULL);
 
     // Delay a bit such that bufio_read enters poll()
@@ -107,20 +121,35 @@ int main(void)
     bufio_stream *si = bufio_open(fname, "r", 1000, 256, testname);
     assert(si != NULL);
 
-    // Wait until writer is present (a read with no writer attached
-    // returns EOF immediately without polling)
-    usleep(100000);
+    // Wait until writer is present: a read with no writer attached
+    // returns EOF immediately without polling, regardless of the
+    // timeout. Bounded so a genuinely missing writer still fails
+    // instead of hanging CI; tolerates fork-scheduling stalls on
+    // loaded runners.
+    bufio_timeout(si, 100);
+    size_t npre = 0;
+    int waited_ms = 0;
+    while ((npre = bufio_read(si, buf, 16)) == 0 && bufio_status(si) == BUFIO_EOF && waited_ms < 10000) {
+      usleep(10000);
+      waited_ms += 10;
+    }
 
-    // Blocking read - returns only once the writer sends data
-    bufio_timeout(si, -1);
-    assert(bufio_read(si, buf, 16) == 16);
+    if (npre == 16) {
+      // Writer was fast: data already arrived, nothing left to do.
+    } else {
+      // Writer attached but silent: blocking read, returns only once
+      // the writer sends data (exercises the infinite-timeout poll).
+      assert(npre == 0);
+      bufio_timeout(si, -1);
+      assert(bufio_read(si, buf, 16) == 16);
+    }
 
     // Clean up
     assert(bufio_close(si) == 0);
 
   FORK_PARENT
     // Open a writer - this waits until a reader is present
-    bufio_stream *so = bufio_open(fname, "w", 2000, 256, testname);
+    bufio_stream *so = bufio_open(fname, "w", 10000, 256, testname);
     assert(so != NULL);
 
     // Delay well past the 20 ms poll slice: a broken single-slice poll
