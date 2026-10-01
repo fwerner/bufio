@@ -7,7 +7,7 @@
  *
  * Contact:
  * - main authors: felix.werner@mpi-hd.mpg.de
- * - upstream URL: https://www.mpi-hd.mpg.de/hinton/software
+ * - upstream URL: https://github.com/fwerner/bufio/
  */
 
 
@@ -52,6 +52,7 @@ flushing and closing a bufio stream.
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -347,16 +348,73 @@ static void ignore_sigpipe(int socket __attribute__((__unused__)))
 
 
 // Poll which automatically restarts on EINTR and EAGAIN
-static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout)
+static inline int safe_poll(struct pollfd fds[], nfds_t nfds, int timeout, bufio_stream_type stream_type)
 {
   // TODO: Automatically decrement timeout, use ppoll on Linux
   int rc;
+  int i = 0;
+  int num_loops = 0;
+#ifdef __MACH__
+  if (stream_type == BUFIO_FIFO && timeout != 0) {
+    // Work around macOS returning 0 for named pipes even though data arrives
+    // within the timeout. This bug exists at least up to macOS Sonoma 14.7. We
+    // could simply call poll with timeout = 0 after hitting the timeout. To
+    // reduce the stuttering we split the timeout into periods of at most 20 ms
+    // and repeat poll as many times as requested (indefinitely for timeout = -1).
+    const int max_poll_period_msec = 20;
+    if (timeout == -1) {
+      // Poll indefinitely in short steps
+      num_loops = -1;
+      timeout = max_poll_period_msec;
+    } else if (timeout > 0 && timeout < 2 * max_poll_period_msec) {
+      // Split interval into 2 polls
+      num_loops = 1;
+      if (timeout > 1)
+        timeout /= 2;
+    } else if (timeout >= 2 * max_poll_period_msec) {
+      // Loop as many times as needed in short steps: the initial poll
+      // plus num_loops retries cover the requested timeout (exact for
+      // multiples of the slice, overshooting by less than one slice
+      // otherwise)
+      num_loops = (timeout + max_poll_period_msec - 1) / max_poll_period_msec - 1;
+      timeout = max_poll_period_msec;
+    }
+  }
+#else
+  (void) stream_type;
+#endif
 
   do {
     rc = poll(fds, nfds, timeout);
-  } while ((rc == -1) && (errno == EINTR || errno == EAGAIN));
+    if (BUFIO_DEBUG && nfds > 0)
+      debug_print("rc=%d, i=%d, nl=%d, timeout=%d, events=%d, revents=%d, error=%s", rc, i, num_loops, timeout, fds[0].events, fds[0].revents, rc == -1 ? strerror(errno): "none");
+  } while (((rc == -1) && (errno == EINTR || errno == EAGAIN)) ||
+           (rc == 0 && (num_loops < 0 || i++ < num_loops)));  // num_loops < 0 polls indefinitely
 
   return rc;
+}
+
+
+// A 0-byte read on a regular file or (character or block) device (e.g.
+// stdin redirected from a file or /dev/null) always means EOF. This is checked
+// with fstat rather than poll: on macOS, poll() on /dev/null doesn't report
+// POLLIN, while regular files do report POLLIN on macOS and Linux. Pipes stat
+// as FIFOs and sockets as sockets, so fstat separates file/device backing
+// from pipes deterministically on all platforms.
+static inline int fd_is_file_or_dev(int fd)
+{
+  struct stat st;
+  return fstat(fd, &st) == 0 &&
+         (S_ISREG(st.st_mode) || S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode));
+}
+
+
+// Millisecond sleep replacing the deprecated usleep(). Unlike usleep,
+// nanosleep does not touch errno on success (usleep does even so on macOS).
+static inline void sleep_msec(long msec)
+{
+  struct timespec ts = { msec / 1000, (msec % 1000) * 1000000L };
+  nanosleep(&ts, NULL);
 }
 
 
@@ -439,7 +497,7 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     poll_in.fd = stream->fd;
     poll_in.events = POLLIN;
 
-    int rc = safe_poll(&poll_in, 1, timeout);
+    int rc = safe_poll(&poll_in, 1, timeout, stream->type);
     if (rc == 0) {
       logstring(info, "listen timeout");
       return 0;
@@ -463,8 +521,10 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
     stream->fd = cs;
     ignore_sigpipe(stream->fd);
 
-    // Enable non-blocking I/O
-    fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
+    // Enable non-blocking I/O (preserving existing status flags)
+    int flags = fcntl(stream->fd, F_GETFL);
+    if (flags != -1)
+      fcntl(stream->fd, F_SETFL, flags | O_NONBLOCK);
 
     loginetadr(info, "connection established", sa, client_address.sin_port);
 
@@ -501,10 +561,24 @@ tty://dev/ttyUS0/raw/speed:9600 or pipe://read/pipefile
 opt specifies the mode of file I/O, if a file has been opened. See fopen(3)
 for modes supported. This parameter is currently ignored for tcp streams,
 which are always bidirectional. Also, standard streams (stdin, stdout) are
-unidirectional. If required, files are created with rw-rw-r--.
+unidirectional. Opening "-" duplicates the underlying standard stream and
+operates on the duplicate, so bufio_close leaves the standard streams
+themselves open (downstream readers see EOF only once the process closes
+them or exits). Non-blocking I/O is enabled for the lifetime of the stream
+(the original flags are restored on bufio_close). Standard input redirected
+from a named pipe (FIFO) reports EPIPE rather than EOF when no writer is
+attached. If required, files are created with rw-rw-r--.
 
 timeout specifies the time to wait for a connection in milliseconds. Specify
--1 to block indefinitely.
+-1 to block indefinitely. If the target is a named pipe (created with mkfifo)
+and mode is "w", bufio_open waits this amount of time for a reader to attach
+to the pipe (checked in 50 ms steps with an exact final partial step;
+smaller positive timeouts are extended to 50 ms). Opening a named pipe in mode
+"r" doesn't wait: it succeeds immediately, and reads report BUFIO_EOF until a
+writer attaches.
+
+Poll and I/O operations on a newly opened stream block indefinitely by
+default; use bufio_timeout() to change this.
 
 bufsize specifies the buffer size in Byte. If 0 a default value will be used.
 
@@ -541,10 +615,12 @@ On systems which do not support ignoring SIGPIPE for specific file descriptors
 
   signal(SIGPIPE, SIG_IGN);
 
-This may affect the rest of your code, but there is no other way to avoid the
-horror of signalling in Unix kernels. SIGPIPE signals can be enabled manually
-afterwards, but this is at your risk and care has to be taken that the
-application code does not crash during writes to a broken pipe.
+This also applies when opening pipes and named pipes (FIFOs), not just
+sockets. This may affect the rest of your code, but there is no other way
+to avoid the horror of signalling in Unix kernels. SIGPIPE signals can be
+enabled manually afterwards, but this is at your risk and care has to be
+taken that the application code does not crash during writes to a broken
+pipe.
 
 //----------------------------------------------------------------------------*/
 {
@@ -587,6 +663,13 @@ application code does not crash during writes to a broken pipe.
     return NULL;
   }
 
+  // I/O and poll operations block indefinitely unless bufio_timeout()
+  // is used to change this (applies to all stream types).
+  stream->io_timeout_ms = -1;
+
+  // No saved fcntl flags unless a "-" stream is opened below.
+  stream->saved_fl = -1;
+
   // Set stream mode and type
   stream->mode = O_NONBLOCK;
   if (type == 'f') {
@@ -626,16 +709,32 @@ application code does not crash during writes to a broken pipe.
   // Handle file open
   if (stream->type == BUFIO_FILE) {
     if (strcmp(peername, "-") == 0) {
-      // Handle standard streams (unidirectional)
+      // Handle standard streams (unidirectional). The fd is duplicated so
+      // that bufio_close() leaves the standard streams themselves open.
       stream->type = BUFIO_PIPE;  // TODO: Restructure code
       if (stream->mode & O_WRONLY) {
-        stream->fd = STDOUT_FILENO;  // Write-only
+        stream->fd = dup(STDOUT_FILENO);  // Write-only
+        if (stream->fd == -1) {
+          logstring(info, "failed to duplicate stdout");
+          goto free_and_out;
+        }
       } else if ((stream->mode & O_RDWR) == 0) {
-        stream->fd = STDIN_FILENO;  // Read-only
+        stream->fd = dup(STDIN_FILENO);  // Read-only
+        if (stream->fd == -1) {
+          logstring(info, "failed to duplicate stdin");
+          goto free_and_out;
+        }
       } else {
         // Read/write
         log2string(info, "invalid mode", opt, "for standard stream");
         goto free_and_out;
+      }
+      // Force non-blocking I/O, saving the original flags for bufio_close.
+      // Flags live on the open-file description shared with the original fd.
+      int std_flags = fcntl(stream->fd, F_GETFL);
+      if (std_flags != -1) {
+        stream->saved_fl = std_flags;
+        fcntl(stream->fd, F_SETFL, std_flags | O_NONBLOCK);
       }
     } else {
       if (sscanf(peername, "lockedfile://%1024s", name) > 0)
@@ -645,7 +744,7 @@ application code does not crash during writes to a broken pipe.
 
       int stat_rc;
       struct stat statbuf;
-      if ((stat_rc = stat(name, &statbuf) == -1) && (errno != ENOENT || !(stream->mode & O_CREAT))) {
+      if ((stat_rc = stat(name, &statbuf)) == -1 && (errno != ENOENT || !(stream->mode & O_CREAT))) {
         log1string(info, "stat failed --", strerror(errno));
         goto free_and_out;
       }
@@ -657,13 +756,50 @@ application code does not crash during writes to a broken pipe.
       } else if (!stat_rc && S_ISFIFO(statbuf.st_mode)) {
         // TODO: LOCKEDFIFO?
         stream->type = BUFIO_FIFO;
+        if (timeout < 0)
+          timeout = -1;
+        else if (timeout > 0 && timeout < 50)
+          timeout = 50;
       }
 
       // Open file
       mode_t file_flags = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
-      if ((stream->fd = open(name, stream->mode, file_flags)) == -1) {
+      while ((stream->fd = open(name, stream->mode, file_flags)) == -1) {
+        if (stream->type != BUFIO_FIFO || !(stream->mode & O_WRONLY))
+          break;
+
+        assert(stream->type == BUFIO_FIFO);
+        if (errno != ENXIO)
+          break;  // genuine error, not "no reader attached"
+
+        // For a writer on namedpipe, wait for a reading process until the timeout is reached
+        if (timeout == 0)
+          break;  // fail fast
+        if (timeout > 50) {
+          sleep_msec(50);
+          timeout -= 50;
+        } else if (timeout == -1) {
+          sleep_msec(50);  // wait indefinitely
+        } else {
+          sleep_msec(timeout);  // final partial slice, then retry once below
+          timeout = 0;
+        }
+      }
+
+      if (stream->fd == -1) {
         log2string(info, "failed to open file with mode", opt, name);
         goto free_and_out;
+      }
+
+      // TOCTOU guard: the path may have been replaced between stat() and
+      // open() (only write-mode opens can create). A FIFO-typed stream on
+      // a non-FIFO fd would misapply FIFO EOF/EPIPE semantics, so fail.
+      if (stream->type == BUFIO_FIFO) {
+        struct stat fd_stat;
+        if (fstat(stream->fd, &fd_stat) != 0 || !S_ISFIFO(fd_stat.st_mode)) {
+          log2string(info, "file replaced between stat and open", opt, name);
+          goto close_free_and_out;
+        }
       }
     }
 
@@ -671,6 +807,9 @@ application code does not crash during writes to a broken pipe.
       logstring(info, "can not create buffer");
       goto close_free_and_out;
     }
+
+    if (stream->type == BUFIO_FIFO || stream->type == BUFIO_PIPE)
+      ignore_sigpipe(stream->fd);
 
     return stream;
   }
@@ -684,9 +823,6 @@ application code does not crash during writes to a broken pipe.
   }
 
   // Handle socket connection
-  // Set default timeout to blocking
-  stream->io_timeout_ms = -1;
-
   // Fill address information
   struct sockaddr_in address;
   address.sin_addr.s_addr = INADDR_ANY;
@@ -759,11 +895,8 @@ application code does not crash during writes to a broken pipe.
         }
         ignore_sigpipe(stream->fd);
       }
-      usleep(50000);
+      sleep_msec(50);
       timeout -= 50;
-#ifdef __APPLE__
-      errno = 0;  // On OS X, usleep sets errno even on success
-#endif
     }
 
     if (rc != 0) {
@@ -772,8 +905,10 @@ application code does not crash during writes to a broken pipe.
     }
   }
 
-  // Enable non-blocking I/O
-  fcntl(stream->fd, F_SETFL, (long) (O_RDWR | O_NONBLOCK));
+  // Enable non-blocking I/O (preserving existing status flags)
+  int sock_flags = fcntl(stream->fd, F_GETFL);
+  if (sock_flags != -1)
+    fcntl(stream->fd, F_SETFL, sock_flags | O_NONBLOCK);
 
   if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
     logstring(info, "can not create buffer");
@@ -815,11 +950,16 @@ and the status code of the stream was set.
 
   BUFIO_TIMEDOUT A read operation or poll timed out.
 
-  BUFIO_EOF      Reached end-of-file. Use bufio_wait to wait for new data.
+  BUFIO_EOF      Reached end-of-file: regular files, or a named pipe (FIFO)
+                 with no writer attached. The latter is retryable (use
+                 bufio_wait to wait for new data or for a writer to attach).
+                 Stdin backed by a file or device (e.g. "./prog < input.txt",
+                 /dev/null) also reports EOF.
 
-  BUFIO_EPIPE    The device or socket has been disconnected or an exceptional
-                 condition such as a low-level I/O error has occurred on the
-                 device or socket.
+  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the peer shut
+                 down the socket connection, or an exceptional condition
+                 such as a low-level I/O error has occurred on the device
+                 or socket.
 
 //----------------------------------------------------------------------------*/
 
@@ -906,6 +1046,7 @@ and the status code of the stream was set.
     read_vec[0].iov_base = (char *) ptr + (size - remaining_bytes);
     read_vec[0].iov_len = remaining_bytes;
 
+    errno = 0;
     ssize_t nbytes = readv(stream->fd, read_vec, 2);
     if (nbytes == -1) {
       if (errno == EAGAIN || errno == EINTR)
@@ -918,8 +1059,37 @@ and the status code of the stream was set.
       return size - remaining_bytes;
     }
 
-    if (nbytes == 0 && poll_in.revents & POLLIN) {
+    // A 0-byte read on a file/device-backed fd means EOF
+    if (nbytes == 0 && fd_is_file_or_dev(stream->fd)) {
+      debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+      stream->status = BUFIO_EOF;
+      bufio_release_read_lock(stream);
+      return size - remaining_bytes;
+    }
+
+    // Read returns 0 to indicate EOF when POLLIN is pending or when no
+    // writer is attached to a named pipe ("fifo") - or an anonymous pipe
+    // (on macOS only!); regular files and devices return above; see pipe(7)
+    if (nbytes == 0 &&
+        ((poll_in.revents & POLLIN) || stream->type == BUFIO_FIFO)) {
+#ifdef __MACH__
+      if (stream->type == BUFIO_PIPE) {
+        debug_print("pipe error with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+        stream->status = BUFIO_EPIPE;
+        bufio_release_read_lock(stream);
+        return size - remaining_bytes;
+      }
+#endif
+      // An orderly peer shutdown on a socket is terminal: no data will
+      // ever arrive again, so report EPIPE rather than EOF.
+      if (stream->type == BUFIO_SOCKET) {
+        debug_print("socket shutdown with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+        stream->status = BUFIO_EPIPE;
+        bufio_release_read_lock(stream);
+        return size - remaining_bytes;
+      }
       // Reached end-of-file
+      debug_print("eof with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
       stream->status = BUFIO_EOF;
       bufio_release_read_lock(stream);
       return size - remaining_bytes;
@@ -938,7 +1108,7 @@ and the status code of the stream was set.
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
-           (poll_rc = safe_poll(&poll_in, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_in, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_in.revents & POLLIN);
 
   bufio_release_read_lock(stream);
@@ -947,11 +1117,11 @@ and the status code of the stream was set.
     return size;
 
   if (poll_in.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_in.revents & POLLERR)
     stream->status = -EIO;  // EIO comes closest to "an exceptional condition"
   else if (poll_rc == 0) {
-    debug_print("timeout with %zu remaining bytes (%zu bytes requested)", remaining_bytes, size);
+    debug_print("timeout with %zu remaining bytes (%zu bytes requested, timeout=%d)", remaining_bytes, size, stream->io_timeout_ms);
     stream->status = BUFIO_TIMEDOUT;
   }
 
@@ -1044,7 +1214,8 @@ error has occured and the status code of the stream was set.
 
         debug_print("error in direct write -- %s", strerror(errno));
 
-        stream->status = -errno;
+        // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+        stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
         return size - remaining_bytes;
       }
 
@@ -1054,7 +1225,7 @@ error has occured and the status code of the stream was set.
       stream->write_lock_offset += nbytes;
       ptr = (char *) ptr + nbytes;
     } while (remaining_bytes > 0 &&
-             (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+             (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
              poll_out.revents == POLLOUT);
 
     if (remaining_bytes == 0)
@@ -1063,7 +1234,7 @@ error has occured and the status code of the stream was set.
     debug_print("error in direct write -- %s", strerror(errno));
 
     if (poll_out.revents & POLLHUP)
-      stream->status = -EPIPE;
+      stream->status = BUFIO_EPIPE;
     else if (poll_out.revents & POLLERR)
       stream->status = -EIO;  // comes closest to "an exceptional condition"
     else if (poll_rc == 0)
@@ -1089,7 +1260,8 @@ error has occured and the status code of the stream was set.
       if (errno == EAGAIN || errno == EINTR)
         continue;
 
-      stream->status = -errno;
+      // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+      stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
       return (remaining_bytes > size) ? 0 : (size - remaining_bytes);
     }
 
@@ -1122,7 +1294,7 @@ error has occured and the status code of the stream was set.
       remaining_bytes -= nbytes;
     }
   } while (remaining_bytes > 0 &&
-           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_out.revents == POLLOUT);
 
   if (remaining_bytes == 0)
@@ -1131,7 +1303,7 @@ error has occured and the status code of the stream was set.
   debug_print("error");
 
   if (poll_out.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_out.revents & POLLERR)
     stream->status = -EIO;  // comes closest to "an exceptional condition"
   else if (poll_rc == 0)
@@ -1198,7 +1370,8 @@ of the stream was set.
       if (errno == EAGAIN || errno == EINTR)
         continue;
 
-      stream->status = -errno;
+      // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+      stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
       bufio_release_write_lock(stream);
       return -1;
     }
@@ -1209,7 +1382,7 @@ of the stream was set.
     output_buffer_head += nbytes;
     stream->write_lock_offset += nbytes;
   } while (output_buffer_head != stream->output_buffer_tail &&
-           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms)) == 1 &&
+           (poll_rc = safe_poll(&poll_out, 1, stream->io_timeout_ms, stream->type)) == 1 &&
            poll_out.revents == POLLOUT);
 
   bufio_release_write_lock(stream);
@@ -1220,7 +1393,7 @@ of the stream was set.
   }
 
   if (poll_out.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_out.revents & POLLERR)
     stream->status = -EIO;  // comes closest to "an exceptional condition"
   else if (poll_rc == 0)
@@ -1301,11 +1474,15 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
 
   BUFIO_TIMEDOUT A read operation or poll timed out.
 
-  BUFIO_EOF      Reached end-of-file.
+  BUFIO_EOF      Reached end-of-file: regular files, a named pipe (FIFO)
+                 with no writer attached, or stdin backed by a file or device.
+                 Waiting again is useful for FIFOs, where a writer may still
+                 attach.
 
-  BUFIO_EPIPE    The device or socket has been disconnected or an exceptional
-                 condition such as a low-level I/O error has occurred on the
-                 device or socket.
+  BUFIO_EPIPE    The writer of an anonymous pipe hung up, the peer shut
+                 down the socket connection, or an exceptional condition
+                 such as a low-level I/O error has occurred on the device
+                 or socket.
 
 //----------------------------------------------------------------------------*/
 {
@@ -1369,10 +1546,17 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       return -1;  // Stream error
     }
 
-    // When trying a non-blocking read on a TCP connection in CLOSE_WAIT state,
-    // - macOS yields 0 bytes and ETIMEDOUT, while
-    // - Linux yields 0 bytes and EAGAIN.
-    if (stream->type == BUFIO_SOCKET && nbytes == 0 && (read_errno == ETIMEDOUT || read_errno == EAGAIN)) {
+    // A 0-byte read on a socket means the peer shut down
+    if (nbytes == 0 && stream->type == BUFIO_SOCKET) {
+      stream->status = BUFIO_EPIPE;
+      return -1;  // Stream error
+    }
+
+    // A 0-byte read on a pipe means the writer hung up (EPIPE), unless the
+    // fd is file/device-backed (see fd_is_file_or_dev), in which case it is
+    // EOF and falls through to the handling below
+    if (nbytes == 0 && stream->type == BUFIO_PIPE &&
+        !fd_is_file_or_dev(stream->fd)) {
       stream->status = BUFIO_EPIPE;
       return -1;  // Stream error
     }
@@ -1395,7 +1579,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
       poll_in.events = POLLIN;
       poll_in.revents = 0;
 
-      int rc = safe_poll(&poll_in, 1, timeout);
+      int rc = safe_poll(&poll_in, 1, timeout, stream->type);
       if (rc == 0) {
         stream->status = BUFIO_TIMEDOUT;
         return 0;  // Timeout
@@ -1403,7 +1587,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
         return bufio_wait(stream, 0);  // data could be present, but only a call to read() tells us if this is true (esp. in TCP hangup conditions)
       } else {
         if (poll_in.revents & POLLHUP)
-          stream->status = -EPIPE;
+          stream->status = BUFIO_EPIPE;
         else  // typically POLLERR
           stream->status = -EIO;  // comes closes to "an exceptional condition"
 
@@ -1415,11 +1599,13 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
     // non-blocking read
     // TODO: Protect from signals and measure actual sleep time
     // TODO: Wait for SIGIO instead of sleeping?
-    if (timeout > 50) {
-      usleep(50000);
+    if (timeout < 0) {
+      sleep_msec(50);  // blocking wait: sleep without decrementing
+    } else if (timeout > 50) {
+      sleep_msec(50);
       timeout -= 50;
     } else {
-      usleep(timeout * 1000);
+      sleep_msec(timeout);
       timeout = 0;
     }
   }
@@ -1447,12 +1633,27 @@ list of possible error codes.
   if (!stream)
     return 0;
 
-  // Flush buffers, synchronise and close file descriptor
+  // Flush buffers first: the stream may still be non-blocking here, so a
+  // stalled reader fails (rather than blocking forever) honoring the
+  // timeout set with bufio_timeout().
   int retval = 0;
-  if (stream->type != BUFIO_MEM &&
-      (bufio_flush(stream) != 0 ||
-       close(stream->fd) != 0))
-    retval = -1;
+  if (stream->type != BUFIO_MEM) {
+    if (bufio_flush(stream) != 0)
+      retval = -1;
+
+    // Restore stdio flags saved at open ("-" streams only; saved_fl is -1
+    // otherwise). Must run after the flush above and before close() below;
+    // the dup'd fd shares the open-file description with the standard stream.
+    if (stream->saved_fl != -1) {
+      fcntl(stream->fd, F_SETFL, stream->saved_fl);
+      stream->saved_fl = -1;
+    }
+
+    // close() runs even if the flush failed: leaking the fd would keep a
+    // downstream reader from ever seeing EOF.
+    if (close(stream->fd) != 0)
+      retval = -1;
+  }
 
   // Free buffers
   if (stream->input_buffer_base)
@@ -1474,7 +1675,8 @@ int bufio_timeout(bufio_stream *stream, int msec)
 
 /*--- Description ------------------------------------------------------------//
 
-Sets the timeout for poll and I/O operations. If timeout is greater than zero,
+Sets the timeout for poll and I/O operations. Newly opened streams start
+with -1 (block indefinitely) for all stream types. If timeout is greater than zero,
 it specifies a maximum interval (in milliseconds) to wait for poll and I/O
 operations. If timeout is zero, then poll and I/O operations will return
 without blocking. If the value of timeout is -1, poll and I/O operations block
@@ -1582,6 +1784,9 @@ Returns a description of the status of stream.
 {
   if (!stream)
     return "closed";
+
+  if (stream->status == BUFIO_EPIPE)
+    return "broken pipe";
 
   if (stream->status < 0)
     return strerror(-stream->status);

@@ -7,7 +7,7 @@
  *
  * Contact:
  * - main authors: felix.werner@mpi-hd.mpg.de
- * - upstream URL: https://www.mpi-hd.mpg.de/hinton/software
+ * - upstream URL: https://github.com/fwerner/bufio/
  */
 
 
@@ -26,7 +26,7 @@ extern "C" {
 typedef enum {
   BUFIO_INVALID_TYPE = 0,  // Uninitialised
   BUFIO_SOCKET,            // TCP or UDP socket
-  BUFIO_FILE,              // File or named pipe
+  BUFIO_FILE,              // Regular file
   BUFIO_LOCKEDFILE,        // File or named pipe with locking
   BUFIO_PIPE,              // Standard stream (stdin, stdout)
   BUFIO_FIFO,              // Named pipe (FIFO)
@@ -35,10 +35,10 @@ typedef enum {
 } bufio_stream_type;
 
 typedef enum {
-  BUFIO_EPIPE = -1,    // Device or socket has been disconnected or an I/O error occured
+  BUFIO_EPIPE = -1,    // Writer hung up, peer shut down, or another I/O error occured
   BUFIO_OKAY = 0,      // Success
   BUFIO_TIMEDOUT = 1,  // Poll or I/O operation timed out
-  BUFIO_EOF = 2,       // Reached end-of-file
+  BUFIO_EOF = 2,       // End-of-file (regular files; also FIFOs with no writer attached)
   BUFIO_NOSPACE = 3    // Not enough space available for write operation. Only returned when writing to mem:// (so far)
 } bufio_stream_status;
 
@@ -66,6 +66,7 @@ typedef struct {
   char *mem_addr;             // Pointer to mem:// field
   size_t mem_size;            // Size of mem:// field
   size_t mem_offset;          // Read/Write offset into mem:// field
+  int saved_fl;               // fcntl status flags saved before forcing O_NONBLOCK on "-" streams (-1 if none)
 } bufio_stream;
 
 bufio_stream *bufio_open(const char *peername, const char *opt, int timeout,

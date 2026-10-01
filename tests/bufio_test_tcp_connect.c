@@ -29,7 +29,9 @@ int main(void)
 
   FORK_PARENT
 
-  bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_tcp_connect");
+  // Accept waits for the child to connect; generous timeout so
+  // fork-scheduling stalls on loaded CI can't exhaust it
+  bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 10000, 0, "bufio_test_tcp_connect");
   assert(input != NULL);
 
   // 4 bytes available

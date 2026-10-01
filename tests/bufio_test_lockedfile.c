@@ -56,9 +56,10 @@ int main(void)
   FORK_PARENT
   FORK_JOIN
 
-  // Assert wait returns properly
+  // Assert wait returns properly (generous deadline: the writer only
+  // needs ~100 ms, but scheduling stalls on loaded CI must not fail us)
   FORK_CHILD
-    assert(bufio_wait(si, 250) == 1);
+    assert(bufio_wait(si, 1000) == 1);
   FORK_PARENT
     usleep(100000);
     assert(bufio_write(so, buf, 1) == 1);

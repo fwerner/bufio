@@ -1,8 +1,9 @@
-build/
-bin/
-include/
-lib/
+*.dat
+.cache
+.devcontainer
 .DS_Store
 .vscode
-.cache
-*.dat
+bin/
+build/
+include/
+lib/
