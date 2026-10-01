@@ -1622,20 +1622,27 @@ list of possible error codes.
   if (!stream)
     return 0;
 
-  // Restore stdio flags saved at open ("-" streams only; saved_fl is -1
-  // otherwise). Must run before close() below; the dup'd fd shares the
-  // open-file description with the standard stream.
-  if (stream->saved_fl != -1) {
-    fcntl(stream->fd, F_SETFL, stream->saved_fl);
-    stream->saved_fl = -1;
-  }
-
-  // Flush buffers, synchronise and close file descriptor
+  // Flush buffers first: the stream may still be non-blocking here, so a
+  // stalled reader fails (rather than blocking forever) honoring the
+  // timeout set with bufio_timeout().
   int retval = 0;
-  if (stream->type != BUFIO_MEM &&
-      (bufio_flush(stream) != 0 ||
-       close(stream->fd) != 0))
-    retval = -1;
+  if (stream->type != BUFIO_MEM) {
+    if (bufio_flush(stream) != 0)
+      retval = -1;
+
+    // Restore stdio flags saved at open ("-" streams only; saved_fl is -1
+    // otherwise). Must run after the flush above and before close() below;
+    // the dup'd fd shares the open-file description with the standard stream.
+    if (stream->saved_fl != -1) {
+      fcntl(stream->fd, F_SETFL, stream->saved_fl);
+      stream->saved_fl = -1;
+    }
+
+    // close() runs even if the flush failed: leaking the fd would keep a
+    // downstream reader from ever seeing EOF.
+    if (close(stream->fd) != 0)
+      retval = -1;
+  }
 
   // Free buffers
   if (stream->input_buffer_base)
