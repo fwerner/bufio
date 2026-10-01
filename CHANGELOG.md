@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Count hostname resolution against connect timeout.
+- Enforce the TCP connect timeout to guard against dropped SYNs, which
+  previously caused system-dependent, very long delays.
+- Log message for unresolvable hosts changed from `"no such host"` to
+  `"can not resolve host"` (now including the `getaddrinfo` error string).
 - **Breaking:** poll and I/O operations block indefinitely (`io_timeout_ms = -1`)
   by default for all stream types. Files, pipes and FIFOs used to be
   non-blocking (`0`). Call `bufio_timeout()` to restore the old behaviour.

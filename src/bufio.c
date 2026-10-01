@@ -418,6 +418,38 @@ static inline void sleep_msec(long msec)
 }
 
 
+// Force non-blocking I/O, preserving existing status flags. If the flags
+// cannot be read, leave them untouched rather than overwriting them.
+static inline void set_nonblocking(int fd)
+{
+  int flags = fcntl(fd, F_GETFL);
+  if (flags != -1)
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+
+static inline struct timespec timespec_add_ms(struct timespec ts, long ms)
+{
+  ts.tv_sec += ms / 1000;
+  ts.tv_nsec += (ms % 1000) * 1000000L;
+  if (ts.tv_nsec >= 1000000000L) {
+    ts.tv_sec += 1;
+    ts.tv_nsec -= 1000000000L;
+  }
+  return ts;
+}
+
+
+// Milliseconds from now until *deadline (negative if expired).
+static inline long ms_until_deadline(const struct timespec *deadline)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (deadline->tv_sec - now.tv_sec) * 1000
+       + (deadline->tv_nsec - now.tv_nsec) / 1000000;
+}
+
+
 static inline void *bufio_memcpy(void *dst, const void *src, size_t n)
 {
   if (n == sizeof(int)) {
@@ -520,11 +552,7 @@ static int accept_socket(bufio_stream *stream, int timeout, const char* info)
 
     stream->fd = cs;
     ignore_sigpipe(stream->fd);
-
-    // Enable non-blocking I/O (preserving existing status flags)
-    int flags = fcntl(stream->fd, F_GETFL);
-    if (flags != -1)
-      fcntl(stream->fd, F_SETFL, flags | O_NONBLOCK);
+    set_nonblocking(stream->fd);
 
     loginetadr(info, "connection established", sa, client_address.sin_port);
 
@@ -591,7 +619,22 @@ connection or file could be opened within the specified timeout.
 //--- Note -------------------------------------------------------------------//
 
 If timeout is smaller than a resonable value for the type of connection it is
-extended.
+extended (currently 100 ms for TCP connect/listen, 50 ms for FIFO writer
+attach). -1 blocks indefinitely.
+
+For TCP, resolution time is counted against timeout, but resolution itself
+cannot be interrupted: getaddrinfo takes no timeout argument and the resolver's
+own limits are not portably settable (with glibc's defaults, timeout:5 and
+attempts:2 per nameserver in resolv.conf, the worst case is on the order of
+timeout x attempts x nameservers, i.e. tens of seconds). A slow or unreachable
+resolver therefore overruns timeout by up to one resolution. To still give the
+connect a chance after a slow resolution, the connect phase is always granted
+at least the minimum window (100 ms) when timeout is non-negative, so the total may
+reach resolution time plus that minimum. Pass a numeric address to avoid
+resolution entirely. The remaining connect time (connect, poll and the sleeps
+between refused-connection retries) is enforced against a single monotonic
+deadline, so bufio_open with a non-negative timeout returns within about
+max(timeout, resolution time + 100 ms) plus scheduling jitter.
 
 Locked files are handled in the following way: bufio_write acquires an exclusive
 region lock from the current position until infinity. To minimise overhead, the
@@ -823,20 +866,67 @@ pipe.
   }
 
   // Handle socket connection
-  // Fill address information
+  // Fill address information. Note that 'address' deliberately carries no
+  // initialiser: the gotos above jump into its scope, which C++ permits only for
+  // vacuous initialisation.
   struct sockaddr_in address;
+  memset(&address, 0, sizeof(address));
   address.sin_addr.s_addr = INADDR_ANY;
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
 
+  // A single monotonic deadline covers resolution, connect(), poll() and the
+  // sleeps between refused-connection retries, so none of them can overrun the
+  // timeout. Timeouts in 0...100 ms are extended once to the minimum connect
+  // window (100 ms); -1 waits indefinitely.
+  // Note that 'has_deadline'/'connect_deadline' deliberately carry no
+  // initialiser: the gotos above jump into their scope, which C++ permits only
+  // for vacuous initialisation (see 'address' above).
+  int has_deadline;
+  struct timespec connect_deadline;
+  if (timeout >= 0 && timeout < 100)
+    timeout = 100;
+  has_deadline = (timeout >= 0);
+  if (has_deadline) {
+    clock_gettime(CLOCK_MONOTONIC, &connect_deadline);
+    connect_deadline = timespec_add_ms(connect_deadline, timeout);
+  }
+
   if (name[0]) {
-    struct hostent *hostentry = gethostbyname(name);
-    if (hostentry == 0) {
-      log1string(info, "no such host", name);
+    // Use getaddrinfo (rather than gethostbyname) to resolve the name. A numeric
+    // address is recognised without consulting the resolver.
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;  // bufio is IPv4-only; see sockaddr_in above
+    hints.ai_socktype = socket_type;
+
+    // getaddrinfo has no timeout parameter and the resolver's own limits are not
+    // portably settable, so resolution is counted against the deadline above
+    // but cannot itself be interrupted.
+    struct addrinfo *resolved = NULL;
+    int gai_rc = getaddrinfo(name, NULL, &hints, &resolved);
+
+    if (has_deadline) {
+      // Guarantee a minimum connect window after resolution: without this, a
+      // resolution consuming the whole timeout would fail at once (remaining
+      // 0) while one leaving 1 ms would still get 100 ms via the extension
+      // above.
+      if (ms_until_deadline(&connect_deadline) < 100) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        connect_deadline = timespec_add_ms(now, 100);
+      }
+    }
+
+    if (gai_rc != 0) {
+      log2string(info, "can not resolve host", name, gai_strerror(gai_rc));
       goto free_and_out;
     }
 
-    memcpy(&(address.sin_addr.s_addr), hostentry->h_addr, hostentry->h_length);
+    // AF_INET was requested, so the result has to be a sockaddr_in
+    assert(resolved->ai_addrlen == sizeof(address));
+    address.sin_addr.s_addr = ((struct sockaddr_in *) resolved->ai_addr)->sin_addr.s_addr;
+    freeaddrinfo(resolved);
   }
 
   sa = (unsigned char *) &address.sin_addr.s_addr;
@@ -847,11 +937,6 @@ pipe.
   }
 
   ignore_sigpipe(stream->fd);
-
-  if (timeout < 0)
-    timeout = -1;
-  else if (timeout > 0 && timeout < 100)
-    timeout = 100;
 
   if (type == 'l' || type == 'L') {
     // Handle server connection
@@ -870,45 +955,117 @@ pipe.
     }
 
     loginetadr(info, "server waiting for connections", sa, address.sin_port);
-    if (stream->type != BUFIO_LISTEN_SOCKET && accept_socket(stream, timeout, info) != 1)
-      goto close_free_and_out;
+    if (stream->type != BUFIO_LISTEN_SOCKET) {
+      int accept_timeout;
+      if (!has_deadline)
+        accept_timeout = -1;
+      else {
+        long remaining_ms = ms_until_deadline(&connect_deadline);
+        accept_timeout = remaining_ms < 0 ? 0 : (int) remaining_ms;
+      }
+      if (accept_socket(stream, accept_timeout, info) != 1)
+        goto close_free_and_out;
+    }
   } else {
     // Handle client connection
     loginetadr(info, "connecting to", sa, address.sin_port);
 
-    int rc = -1;
+    // Connect non-blocking so that the timeout can be enforced with poll: a
+    // blocking connect() to a host which drops SYNs would stay in SYN_SENT
+    // until the kernel exhausts its SYN retries.
+    set_nonblocking(stream->fd);
+
     while (1) {
-      // TODO: Measure 'connect' (and 'close'/'socket') time to properly decrease timeout
-      rc = connect(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address));
+      int rc = connect(stream->fd, (struct sockaddr *) &address, (socklen_t) sizeof(address));
       debug_print("connect rc %d errno %d desc %s", rc, errno, strerror(errno));
-      if (rc == 0 || (timeout >= 0 && timeout < 50))
+      if (rc == 0) {
         break;
-
-      if (rc == -1 && errno == ECONNREFUSED) {
-        // if the peer is not ready and refuses we try again
-        // linux would accept retrying the connect() call directly
-        // apple/bsd require closing and opening the socket again.
-        close(stream->fd);
-        if ( (stream->fd = socket(AF_INET, socket_type, 0)) == -1 ) {
-          logstring(info, "create socket failed");
-          goto free_and_out;
-        }
-        ignore_sigpipe(stream->fd);
       }
-      sleep_msec(50);
-      timeout -= 50;
-    }
 
-    if (rc != 0) {
-      log1string(info, "connect timeout /", strerror(errno));
-      goto close_free_and_out;
+      int connect_errno = errno;
+      int so_error = connect_errno;
+
+      if (connect_errno != EINPROGRESS) {
+        // Immediate error (e.g. ECONNREFUSED on loopback). Only a refused
+        // connection is retryable (the server may still appear within the
+        // timeout); anything else fails immediately.
+        if (connect_errno != ECONNREFUSED) {
+          log1string(info, "connect failed /", strerror(connect_errno));
+          goto close_free_and_out;
+        }
+        // Fall through to the retry logic below.
+      } else {
+        long remaining_ms = has_deadline ? ms_until_deadline(&connect_deadline) : -1;
+        int poll_timeout = !has_deadline ? -1 : (remaining_ms < 0 ? 0 : (int) remaining_ms);
+
+        struct pollfd poll_out;
+        poll_out.fd = stream->fd;
+        poll_out.events = POLLOUT;
+        poll_out.revents = 0;
+
+        int poll_rc = safe_poll(&poll_out, 1, poll_timeout, stream->type);
+        if (poll_rc == 0) {
+          logstring(info, "connect timeout");
+          goto close_free_and_out;
+        }
+
+        if (poll_rc < 0) {
+          log1string(info, "connect poll failed /", strerror(errno));
+          goto close_free_and_out;
+        }
+
+        // A pending connect reports its result only via SO_ERROR. revents is not
+        // examined because a failed connect signals POLLOUT together with POLLERR
+        // on Berkeley-derived kernels but POLLERR alone on SVR4-derived ones;
+        // POLLERR is reported regardless of the requested events in either case.
+        so_error = 0;
+        socklen_t so_error_size = sizeof(so_error);
+        if (getsockopt(stream->fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_size) != 0) {
+          log1string(info, "can not get socketopt/error /", strerror(errno));
+          goto close_free_and_out;
+        }
+
+        if (so_error == 0) {
+          break;
+        }
+
+        if (so_error != ECONNREFUSED) {
+          log1string(info, "connect failed /", strerror(so_error));
+          goto close_free_and_out;
+        }
+        // Refused: fall through to the retry logic below.
+      }
+
+      // Connection refused: retry until the deadline expires so that a delayed
+      // server (see tests/bufio_test_delayed_tcp_connect.c) can still be
+      // reached. Linux would accept retrying connect() directly, Apple/BSD
+      // require closing and reopening the socket.
+      assert(so_error == ECONNREFUSED || connect_errno == ECONNREFUSED);
+      long remaining_ms = has_deadline ? ms_until_deadline(&connect_deadline) : -1;
+      if (has_deadline && remaining_ms <= 0) {
+        log1string(info, "connect timeout /", strerror(so_error != 0 ? so_error : connect_errno));
+        goto close_free_and_out;
+      }
+
+      close(stream->fd);
+      if ((stream->fd = socket(AF_INET, socket_type, 0)) == -1) {
+        logstring(info, "create socket failed");
+        goto free_and_out;
+      }
+      ignore_sigpipe(stream->fd);
+      set_nonblocking(stream->fd);
+
+      if (!has_deadline) {
+        sleep_msec(50);  // wait indefinitely
+      } else {
+        // Sleep at most until the deadline; the next loop iteration then
+        // performs one final immediate attempt.
+        sleep_msec(remaining_ms < 50 ? remaining_ms : 50);
+      }
     }
   }
 
-  // Enable non-blocking I/O (preserving existing status flags)
-  int sock_flags = fcntl(stream->fd, F_GETFL);
-  if (sock_flags != -1)
-    fcntl(stream->fd, F_SETFL, sock_flags | O_NONBLOCK);
+  set_nonblocking(stream->fd);
 
   if (bufio_set_buffer(stream, bufsize > 0 ? bufsize : BUFIO_BUFSIZE) != 0) {
     logstring(info, "can not create buffer");
