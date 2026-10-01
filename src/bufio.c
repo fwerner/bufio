@@ -1117,7 +1117,7 @@ and the status code of the stream was set.
     return size;
 
   if (poll_in.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_in.revents & POLLERR)
     stream->status = -EIO;  // EIO comes closest to "an exceptional condition"
   else if (poll_rc == 0) {
@@ -1212,7 +1212,8 @@ error has occured and the status code of the stream was set.
 
         debug_print("error in direct write -- %s", strerror(errno));
 
-        stream->status = -errno;
+        // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+        stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
         return size - remaining_bytes;
       }
 
@@ -1231,7 +1232,7 @@ error has occured and the status code of the stream was set.
     debug_print("error in direct write -- %s", strerror(errno));
 
     if (poll_out.revents & POLLHUP)
-      stream->status = -EPIPE;
+      stream->status = BUFIO_EPIPE;
     else if (poll_out.revents & POLLERR)
       stream->status = -EIO;  // comes closest to "an exceptional condition"
     else if (poll_rc == 0)
@@ -1257,7 +1258,8 @@ error has occured and the status code of the stream was set.
       if (errno == EAGAIN || errno == EINTR)
         continue;
 
-      stream->status = -errno;
+      // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+      stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
       return (remaining_bytes > size) ? 0 : (size - remaining_bytes);
     }
 
@@ -1299,7 +1301,7 @@ error has occured and the status code of the stream was set.
   debug_print("error");
 
   if (poll_out.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_out.revents & POLLERR)
     stream->status = -EIO;  // comes closest to "an exceptional condition"
   else if (poll_rc == 0)
@@ -1366,7 +1368,8 @@ of the stream was set.
       if (errno == EAGAIN || errno == EINTR)
         continue;
 
-      stream->status = -errno;
+      // Normalize EPIPE to the enum so bufio_status_str() stays locale-independent.
+      stream->status = (errno == EPIPE) ? BUFIO_EPIPE : -errno;
       bufio_release_write_lock(stream);
       return -1;
     }
@@ -1388,7 +1391,7 @@ of the stream was set.
   }
 
   if (poll_out.revents & POLLHUP)
-    stream->status = -EPIPE;
+    stream->status = BUFIO_EPIPE;
   else if (poll_out.revents & POLLERR)
     stream->status = -EIO;  // comes closest to "an exceptional condition"
   else if (poll_rc == 0)
@@ -1582,7 +1585,7 @@ input buffers. If the value of timeout is -1, the poll blocks indefinitely.
         return bufio_wait(stream, 0);  // data could be present, but only a call to read() tells us if this is true (esp. in TCP hangup conditions)
       } else {
         if (poll_in.revents & POLLHUP)
-          stream->status = -EPIPE;
+          stream->status = BUFIO_EPIPE;
         else  // typically POLLERR
           stream->status = -EIO;  // comes closes to "an exceptional condition"
 

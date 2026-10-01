@@ -12,6 +12,8 @@ bufio_test_namedpipe_async = executable('bufio_test_namedpipe_async', 'bufio_tes
 bufio_test_wait_on_tcpclose_with_pending_data = executable('bufio_test_wait_on_tcpclose_with_pending_data', 'bufio_test_wait_on_tcpclose_with_pending_data.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_wait_on_tcpclose = executable('bufio_test_wait_on_tcpclose', 'bufio_test_wait_on_tcpclose.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_mem_interface = executable('bufio_test_mem_interface', 'bufio_test_mem_interface.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_broken_pipe = executable('bufio_test_broken_pipe', 'bufio_test_broken_pipe.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_wait_on_tcpclose_single = executable('bufio_test_wait_on_tcpclose_single', 'bufio_test_wait_on_tcpclose_single.c', include_directories : bufio_inc, link_with : bufio_lib)
 
 # test('bufio_test_follow_chunk', bufio_test_follow_chunk, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_follow', bufio_test_follow, is_parallel : false, suite: ['all', 'default'])
@@ -25,6 +27,8 @@ test('bufio_test_stdin_file', bufio_test_stdin_file, is_parallel : false, suite:
 test('bufio_test_namedpipe', bufio_test_namedpipe, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_namedpipe_async', bufio_test_namedpipe_async, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_mem_interface', bufio_test_mem_interface, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_broken_pipe', bufio_test_broken_pipe, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_wait_on_tcpclose_single', bufio_test_wait_on_tcpclose_single, is_parallel : false, suite: ['all', 'default'])
 
 test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])
 test('bufio_test_wait_on_tcpclose_with_pending_data', bufio_test_wait_on_tcpclose_with_pending_data, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])

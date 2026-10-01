@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "bufio.h"
@@ -54,6 +55,7 @@ int main(void)
     // Assert EOF after writer hung up
     struct timeval before, after;
     assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_EPIPE);
+    assert(strcmp(bufio_status_str(si), "broken pipe") == 0);
     assert(bufio_wait(si, 0) == -1 && bufio_status(si) == BUFIO_EPIPE);
     assert(gettimeofday(&before, NULL) == 0);
     assert(bufio_wait(si, 1000) == -1 && bufio_status(si) == BUFIO_EPIPE);
