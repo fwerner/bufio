@@ -33,7 +33,7 @@ int main(void)
   assert(gettimeofday(&after, NULL) == 0);
   double elapsed120 = after.tv_sec + 1e-6 * after.tv_usec
                     - before.tv_sec - 1e-6 * before.tv_usec;
-  assert(elapsed120 >= 0.11 && elapsed120 < 1.0);
+  assert(elapsed120 >= 0.119 && elapsed120 < 1.0);
 
   // Attempt to open a writer: this should fail after the timeout because no one is listening
   assert(gettimeofday(&before, NULL) == 0);

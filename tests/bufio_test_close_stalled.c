@@ -23,6 +23,7 @@
 // pending for close() to flush.
 int main(void)
 {
+  alarm(5);  // fail fast (SIGALRM) instead of hanging if close blocks
   const char testname[] = "bufio_test_close_stalled";
   char buf[65536];
   memset(buf, 'x', sizeof buf);
