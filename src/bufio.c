@@ -765,7 +765,7 @@ pipe.
       // Open file
       mode_t file_flags = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
       while ((stream->fd = open(name, stream->mode, file_flags)) == -1) {
-        if (stream->type != BUFIO_FIFO || !(stream->mode & O_WRONLY) || (timeout >= 0 && timeout < 50))
+        if (stream->type != BUFIO_FIFO || !(stream->mode & O_WRONLY))
           break;
 
         assert(stream->type == BUFIO_FIFO);
@@ -823,9 +823,6 @@ pipe.
   }
 
   // Handle socket connection
-  // Set default timeout to blocking
-  stream->io_timeout_ms = -1;
-
   // Fill address information
   struct sockaddr_in address;
   address.sin_addr.s_addr = INADDR_ANY;

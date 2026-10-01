@@ -51,7 +51,7 @@ int main(void)
   assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_EOF);
   assert(bufio_wait(si, 0) == 0 && bufio_status(si) == BUFIO_EOF);
 
-  assert(bufio_close(si) == 0);  // note: also closes STDIN_FILENO
+  assert(bufio_close(si) == 0);  // note: stdio itself stays open (dup'd stream)
 
   // Same for /dev/null: immediate EOF, not EPIPE
   fd = open("/dev/null", O_RDONLY);

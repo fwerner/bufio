@@ -37,7 +37,7 @@ int main(void)
     assert(si != NULL);
 
     // I/O operations block by default; opt into a timeout for the checks below
-    bufio_timeout(si, 100);
+    assert(bufio_timeout(si, 100) == -1);
 
     // Assert no initial data
     assert(bufio_read(si, buf, 16) == 0 && bufio_status(si) == BUFIO_TIMEDOUT);

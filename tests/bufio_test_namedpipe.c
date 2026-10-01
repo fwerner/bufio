@@ -37,7 +37,7 @@ int main(void)
   assert(si != NULL);
 
   // I/O operations block by default; opt into a timeout for the checks below
-  bufio_timeout(si, 100);
+  assert(bufio_timeout(si, 100) == -1);
 
   // Open a writer: this should be much quicker than before
   assert(gettimeofday(&before, NULL) == 0);
