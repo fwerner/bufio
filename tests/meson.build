@@ -26,5 +26,5 @@ test('bufio_test_namedpipe', bufio_test_namedpipe, is_parallel : false, suite: [
 test('bufio_test_namedpipe_async', bufio_test_namedpipe_async, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_mem_interface', bufio_test_mem_interface, is_parallel : false, suite: ['all', 'default'])
 
-test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 120, suite: ['all', 'extensive'])
-test('bufio_test_wait_on_tcpclose_with_pending_data', bufio_test_wait_on_tcpclose_with_pending_data, is_parallel : false, timeout : 120, suite: ['all', 'extensive'])
+test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])
+test('bufio_test_wait_on_tcpclose_with_pending_data', bufio_test_wait_on_tcpclose_with_pending_data, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])

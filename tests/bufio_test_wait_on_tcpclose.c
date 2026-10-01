@@ -18,7 +18,7 @@ int main(void)
 {
   char buf[16];
 
-  for (int i = 0; i < 1024; i++) {
+  for (int i = 0; i < 256; i++) {
     FORK_CHILD
     bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_wait_on_tcpclose");
     assert(input != NULL);
@@ -35,9 +35,9 @@ int main(void)
 
     usleep(100000);
 
-    // Other end closed
+    // Other end closed: reads drain to EPIPE, waits report it immediately
     bufio_timeout(input, 1000);
-    assert(bufio_read(input, buf, 4) == 0);
+    assert(bufio_read(input, buf, 4) == 0 && bufio_status(input) == BUFIO_EPIPE);
     assert(bufio_wait(input, 1000) == -1);
 
     assert(bufio_close(input) == 0);

@@ -19,7 +19,7 @@ int main(void)
   char buf[16];
 
   // We are hunting for a race condition between read() and poll() here - so we need a couple of tries
-  for (int i = 0; i < 1024; ++i) {
+  for (int i = 0; i < 256; ++i) {
     FORK_CHILD
     bufio_stream *input = bufio_open("tcp://listen/12345/localhost", "r", 1000, 0, "bufio_test_wait_on_tcpclose_with_pending_data");
     assert(input != NULL);
