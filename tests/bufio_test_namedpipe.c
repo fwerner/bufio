@@ -24,8 +24,18 @@ int main(void)
   unlink("test_bufio_namedpipe.fifo");
   assert(mkfifo("test_bufio_namedpipe.fifo", S_IRUSR | S_IWUSR) == 0);
 
-  // Attempt to open a writer: this should fail after the timeout because no one is listening
+  // Writer open with a timeout that is not a multiple of 50 ms waits the
+  // full amount (exact final partial slice), with no reader attached.
   struct timeval before, after;
+  assert(gettimeofday(&before, NULL) == 0);
+  bufio_stream *so0 = bufio_open("test_bufio_namedpipe.fifo", "w", 120, 256, "bufio_test_namedpipe");
+  assert(so0 == NULL);
+  assert(gettimeofday(&after, NULL) == 0);
+  double elapsed120 = after.tv_sec + 1e-6 * after.tv_usec
+                    - before.tv_sec - 1e-6 * before.tv_usec;
+  assert(elapsed120 >= 0.11 && elapsed120 < 1.0);
+
+  // Attempt to open a writer: this should fail after the timeout because no one is listening
   assert(gettimeofday(&before, NULL) == 0);
   bufio_stream *so = bufio_open("test_bufio_namedpipe.fifo", "w", 1000, 256, "bufio_test_namedpipe");
   assert(so == NULL);

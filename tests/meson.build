@@ -13,6 +13,7 @@ bufio_test_wait_on_tcpclose_with_pending_data = executable('bufio_test_wait_on_t
 bufio_test_wait_on_tcpclose = executable('bufio_test_wait_on_tcpclose', 'bufio_test_wait_on_tcpclose.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_mem_interface = executable('bufio_test_mem_interface', 'bufio_test_mem_interface.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_broken_pipe = executable('bufio_test_broken_pipe', 'bufio_test_broken_pipe.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_close_stalled = executable('bufio_test_close_stalled', 'bufio_test_close_stalled.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_wait_on_tcpclose_single = executable('bufio_test_wait_on_tcpclose_single', 'bufio_test_wait_on_tcpclose_single.c', include_directories : bufio_inc, link_with : bufio_lib)
 
 # test('bufio_test_follow_chunk', bufio_test_follow_chunk, is_parallel : false, suite: ['all', 'default'])
@@ -28,6 +29,7 @@ test('bufio_test_namedpipe', bufio_test_namedpipe, is_parallel : false, suite: [
 test('bufio_test_namedpipe_async', bufio_test_namedpipe_async, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_mem_interface', bufio_test_mem_interface, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_broken_pipe', bufio_test_broken_pipe, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_close_stalled', bufio_test_close_stalled, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_wait_on_tcpclose_single', bufio_test_wait_on_tcpclose_single, is_parallel : false, suite: ['all', 'default'])
 
 test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])
