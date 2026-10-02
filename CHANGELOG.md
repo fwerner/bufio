@@ -16,8 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Count hostname resolution against connect timeout.
-- Enforce the TCP connect timeout to guard against dropped SYNs, which
-  previously caused system-dependent, very long delays.
+- **Breaking:** `bufio_open` with `timeout` from 0 to 100 ms on TCP now waits
+  up to 100 ms: values in that range are raised to the 100 ms minimum because
+  a connect cannot complete in zero time. Previously `timeout == 0` attempted a
+  single blocking `connect()`, which waited as long as the OS allowed.
+- **Breaking:** TCP connect errors other than connection refused (e.g.
+  `ENETUNREACH`, `EHOSTUNREACH`, `EADDRNOTAVAIL`) now fail immediately instead
+  of retrying until the timeout expires. A client started before its network
+  interface is up therefore no longer waits for the network to appear.
 - Log message for unresolvable hosts changed from `"no such host"` to
   `"can not resolve host"` (now including the `getaddrinfo` error string).
 - **Breaking:** poll and I/O operations block indefinitely (`io_timeout_ms = -1`)
@@ -38,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enforced the TCP connect timeout for hosts that drop SYNs, which previously
+  caused system-dependent, very long delays.
 - Reads and waits on named pipes timing out on macOS although data arrived
   (works around a `poll` bug).
 - `bufio_wait(stream, -1)` on an EOF stream passing a negative value to `usleep`.

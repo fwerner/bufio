@@ -601,7 +601,9 @@ timeout specifies the time to wait for a connection in milliseconds. Specify
 -1 to block indefinitely. If the target is a named pipe (created with mkfifo)
 and mode is "w", bufio_open waits this amount of time for a reader to attach
 to the pipe (checked in 50 ms steps with an exact final partial step;
-smaller positive timeouts are extended to 50 ms). Opening a named pipe in mode
+smaller positive timeouts are extended to 50 ms). A timeout of 0 checks once
+for an attached reader, so the result is only a snapshot: use a positive
+timeout when the reader may still be starting. Opening a named pipe in mode
 "r" doesn't wait: it succeeds immediately, and reads report BUFIO_EOF until a
 writer attaches.
 
@@ -618,23 +620,15 @@ connection or file could be opened within the specified timeout.
 
 //--- Note -------------------------------------------------------------------//
 
-If timeout is smaller than a resonable value for the type of connection it is
-extended (currently 100 ms for TCP connect/listen, 50 ms for FIFO writer
-attach). -1 blocks indefinitely.
+If timeout is smaller than a reasonable value for the type of connection it is
+extended (currently 0 to 100 ms for TCP connect/listen, because a connect
+cannot complete in zero time, and 1 to 50 ms for FIFO writer attach). -1
+blocks indefinitely.
 
 For TCP, resolution time is counted against timeout, but resolution itself
-cannot be interrupted: getaddrinfo takes no timeout argument and the resolver's
-own limits are not portably settable (with glibc's defaults, timeout:5 and
-attempts:2 per nameserver in resolv.conf, the worst case is on the order of
-timeout x attempts x nameservers, i.e. tens of seconds). A slow or unreachable
-resolver therefore overruns timeout by up to one resolution. To still give the
-connect a chance after a slow resolution, the connect phase is always granted
-at least the minimum window (100 ms) when timeout is non-negative, so the total may
-reach resolution time plus that minimum. Pass a numeric address to avoid
-resolution entirely. The remaining connect time (connect, poll and the sleeps
-between refused-connection retries) is enforced against a single monotonic
-deadline, so bufio_open with a non-negative timeout returns within about
-max(timeout, resolution time + 100 ms) plus scheduling jitter.
+cannot be interrupted, so bufio_open returns within about max(timeout,
+resolution time + 100 ms) plus scheduling jitter. Pass a numeric address to
+avoid resolution entirely -- it is recognised without consulting the resolver.
 
 Locked files are handled in the following way: bufio_write acquires an exclusive
 region lock from the current position until infinity. To minimise overhead, the

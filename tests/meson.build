@@ -18,6 +18,9 @@ bufio_test_wait_on_tcpclose_single = executable('bufio_test_wait_on_tcpclose_sin
 bufio_test_tcp_refused_timeout = executable('bufio_test_tcp_refused_timeout', 'bufio_test_tcp_refused_timeout.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_tcp_dropped_timeout = executable('bufio_test_tcp_dropped_timeout', 'bufio_test_tcp_dropped_timeout.c', include_directories : bufio_inc, link_with : bufio_lib)
 bufio_test_tcp_invalid_host = executable('bufio_test_tcp_invalid_host', 'bufio_test_tcp_invalid_host.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_tcp_listen_timeout = executable('bufio_test_tcp_listen_timeout', 'bufio_test_tcp_listen_timeout.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_tcp_zero_timeout = executable('bufio_test_tcp_zero_timeout', 'bufio_test_tcp_zero_timeout.c', include_directories : bufio_inc, link_with : bufio_lib)
+bufio_test_tcp_infinite_timeout = executable('bufio_test_tcp_infinite_timeout', 'bufio_test_tcp_infinite_timeout.c', include_directories : bufio_inc, link_with : bufio_lib)
 
 # test('bufio_test_follow_chunk', bufio_test_follow_chunk, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_follow', bufio_test_follow, is_parallel : false, suite: ['all', 'default'])
@@ -37,6 +40,9 @@ test('bufio_test_wait_on_tcpclose_single', bufio_test_wait_on_tcpclose_single, i
 test('bufio_test_tcp_refused_timeout', bufio_test_tcp_refused_timeout, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_tcp_dropped_timeout', bufio_test_tcp_dropped_timeout, is_parallel : false, suite: ['all', 'default'])
 test('bufio_test_tcp_invalid_host', bufio_test_tcp_invalid_host, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_tcp_listen_timeout', bufio_test_tcp_listen_timeout, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_tcp_zero_timeout', bufio_test_tcp_zero_timeout, is_parallel : false, suite: ['all', 'default'])
+test('bufio_test_tcp_infinite_timeout', bufio_test_tcp_infinite_timeout, is_parallel : false, suite: ['all', 'default'])
 
 test('bufio_test_wait_on_tcpclose', bufio_test_wait_on_tcpclose, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])
 test('bufio_test_wait_on_tcpclose_with_pending_data', bufio_test_wait_on_tcpclose_with_pending_data, is_parallel : false, timeout : 300, suite: ['all', 'extensive'])

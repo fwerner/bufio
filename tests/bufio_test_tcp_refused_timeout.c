@@ -20,9 +20,9 @@ static long elapsed_ms(const struct timespec *a, const struct timespec *b)
 }
 
 // A refused connection must respect the timeout overall. Note the limits of this check:
-// on loopback a refusal comes back almost instantly, so the per-retry is tiny here and a
-// tight bound would be flaky on loaded CI. Strict per-retry accounting is enforced by
-// construction via a single monotonic deadline (see bufio.c); reproducing real network
+// on loopback a refusal comes back almost instantly, so the per-retry delay is tiny here
+// and a tight bound would be flaky on loaded CI. Strict per-retry accounting is enforced
+// by construction via a single monotonic deadline (see bufio.c); reproducing real network
 // round-trip delay would need tc netem and root. This test therefore guards gross
 // overruns and that the retry loop waits out (roughly) the whole timeout.
 int main(void)

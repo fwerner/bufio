@@ -15,12 +15,12 @@
 
 // An unresolvable host (*.invalid, RFC 2606) must fail, and with a working
 // resolver it fails quickly instead of waiting out the full connect timeout.
-// Resolution time itself cannot be bounded portably (a slow or unreachable
-// resolver blocks in getaddrinfo for seconds), so a slow environment skips
-// the fast-fail check. Exact subtraction is enforced by construction via a
-// single monotonic deadline (see bufio.c) and cannot be timing-tested without
-// a controlled DNS; the localhost case below exercises the resolution path
-// with a fast resolver.
+// Set BUFIO_ALLOW_SLOW_RESOLVER to skip the fast-fail check on runners whose
+// resolver is slow or unreachable (getaddrinfo then blocks for seconds, which
+// no client-side timeout can prevent). Exact subtraction is enforced by
+// construction via a single monotonic deadline (see bufio.c) and cannot be
+// timing-tested without a controlled DNS; the localhost case below exercises
+// the resolution path with a fast resolver.
 int main(void)
 {
   int timeout = 2000;
@@ -35,9 +35,10 @@ int main(void)
           + (end.tv_nsec - start.tv_nsec) / 1000000;
   fprintf(stderr, "invalid: timeout=%d elapsed=%ld ms\n", timeout, ms);
   assert(s == NULL);
-  if (ms >= timeout / 2) {
-    // Slow or unreachable resolver on this runner (seconds per nameserver)?
-    fprintf(stderr, "invalid: slow resolver, skipping fast-fail check\n");
+  if (getenv("BUFIO_ALLOW_SLOW_RESOLVER") == NULL) {
+    assert(ms < timeout / 2);
+  } else if (ms >= timeout / 2) {
+    fprintf(stderr, "invalid: slow resolver, skipping fast-fail check (BUFIO_ALLOW_SLOW_RESOLVER set)\n");
   }
 
   // Resolution path with a fast resolver: "localhost" resolves via hosts to
